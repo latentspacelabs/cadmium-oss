@@ -15,7 +15,9 @@ sidecar/    the Rust, python-free implementation of the same contract
             (axum + ONNX Runtime + byte-exact ports of every classical stage)
 tools/      golden-dump tools (run on the production box) that gate the
             sidecar's verify_* bins, corpus extraction helpers, and
-            upload_models_release.sh (publishes the ONNX artifacts to the
+            upload_models_release.sh (local fallback; the default is the
+            runner-side .github/workflows/upload-models.yml — publishes the
+            ONNX artifacts to the
             models-v1 GitHub Release, verified against the app's manifest)
 ```
 

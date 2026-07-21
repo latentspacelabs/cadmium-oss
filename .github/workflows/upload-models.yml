@@ -1,0 +1,97 @@
+# Default path for publishing the ONNX model artifacts to the models release.
+# Runs entirely on a GitHub runner (fast internal network) instead of a local
+# uplink. You supply a fetchable URL for each file (e.g. an S3 presigned URL,
+# or any HTTP source reachable from the runner — stage from a fast box like
+# the training host, not a laptop). The runner downloads each file, verifies
+# its size + sha256 against app/src/util/model-manifest.js, then uploads it to
+# the release named by the manifest (MODELS_RELEASE_TAG), creating that
+# release if needed. Leave a URL blank to skip that file (e.g. to (re)upload
+# only the two AnT files). serving/tools/upload_models_release.sh remains the
+# local fallback for when you already have the bytes on a fast connection.
+#
+#   gh workflow run upload-models.yml \
+#     -f ant_url='https://…/ant_v2_fp32.onnx?…' \
+#     -f ant_bucket_url='https://…/ant_v2_fp32_bucket.onnx?…' \
+#     -f gap_url='https://…/gap_closer_fp32.onnx?…'
+name: Upload model artifacts to the release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ant_url:
+        description: "URL to ant_v2_fp32.onnx (blank = skip)"
+        required: false
+      ant_bucket_url:
+        description: "URL to ant_v2_fp32_bucket.onnx (blank = skip)"
+        required: false
+      gap_url:
+        description: "URL to gap_closer_fp32.onnx (blank = skip)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download, verify against the manifest, and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANT_URL: ${{ inputs.ant_url }}
+          ANT_BUCKET_URL: ${{ inputs.ant_bucket_url }}
+          GAP_URL: ${{ inputs.gap_url }}
+        run: |
+          set -euo pipefail
+          MANIFEST=app/src/util/model-manifest.js
+          TAG=$(node -e "console.log(require('./$MANIFEST').MODELS_RELEASE_TAG)")
+          echo "Target release: $TAG"
+
+          declare -A URLS=(
+            [ant_v2_fp32.onnx]="$ANT_URL"
+            [ant_v2_fp32_bucket.onnx]="$ANT_BUCKET_URL"
+            [gap_closer_fp32.onnx]="$GAP_URL"
+          )
+
+          # "file sha256 bytes" per manifest entry.
+          node -e "require('./$MANIFEST').MODEL_FILES.forEach(m => console.log(m.file, m.sha256, m.bytes))" > manifest.txt
+
+          FILES=()
+          while read -r file sha bytes; do
+            url="${URLS[$file]:-}"
+            if [ -z "$url" ]; then echo "skip $file (no url given)"; continue; fi
+            echo "downloading $file ..."
+            curl -fSL --retry 3 "$url" -o "$file"
+            actual_bytes=$(stat -c %s "$file")
+            if [ "$actual_bytes" != "$bytes" ]; then
+              echo "SIZE MISMATCH: $file is $actual_bytes bytes, manifest says $bytes" >&2; exit 1
+            fi
+            echo "  sha256 $file ..."
+            actual_sha=$(sha256sum "$file" | awk '{print $1}')
+            if [ "$actual_sha" != "$sha" ]; then
+              echo "SHA256 MISMATCH: $file" >&2
+              echo "  manifest: $sha" >&2
+              echo "  actual:   $actual_sha" >&2
+              exit 1
+            fi
+            echo "  verified $file"
+            FILES+=("$file")
+          done < manifest.txt
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No URLs provided — nothing to upload." >&2; exit 1
+          fi
+
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Creating release $TAG"
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+              --title "Model artifacts (embedded backend) — $TAG" \
+              --notes "ONNX model artifacts for the embedded serving backend. Pinned by app/src/util/model-manifest.js — do not replace assets in place; publish a new tag instead."
+          fi
+          echo "Uploading ${#FILES[@]} file(s) to $TAG"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber "${FILES[@]}"
+          echo "Done."

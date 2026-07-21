@@ -168,14 +168,23 @@ builds):
 
 `app/src/util/model-manifest.js` is the single source of truth: names,
 byte sizes, sha256 hashes, release tag/URL. CommonJS on purpose so both
-webpack and node tooling load it. `serving/tools/upload_models_release.sh
-<models-dir>` verifies local files against the manifest (size + sha256)
-and creates/uploads the release via `gh`. Bumping models = new tag + new
-hashes in one commit, so an app version pins the exact bytes its parity
-goldens were validated against. All assets sit under GitHub's 2 GiB/file
-cap; bandwidth on public repos is free (the reason GH Releases won over
-S3+CloudFront — swapping later is a one-line base-URL change in the
-manifest).
+webpack and node tooling load it. Bumping models = new tag + new hashes in
+one commit, so an app version pins the exact bytes its parity goldens were
+validated against. All assets sit under GitHub's 2 GiB/file cap; bandwidth
+on public repos is free (the reason GH Releases won over S3+CloudFront —
+swapping later is a one-line base-URL change in the manifest).
+
+**Publishing the artifacts (default: on a runner).** These files are
+multi-GB, so the upload should never run from a laptop uplink. The
+`upload-models.yml` workflow (`gh workflow run upload-models.yml -f
+ant_url=… -f ant_bucket_url=… -f gap_url=…`) runs on a GitHub runner:
+it fetches each file from the URL you give it (stage them somewhere fast —
+an S3 presigned URL, or an HTTP source on the training host), verifies
+size + sha256 against the manifest, and uploads to `MODELS_RELEASE_TAG`
+(creating the release if needed). Leave a URL blank to skip a file — e.g.
+to re-upload only the two AnT files. `serving/tools/upload_models_release.sh
+<models-dir>` is the local fallback (same manifest verification) for when
+you already have the bytes on a fast connection.
 
 **In-app bootstrap**: the Server Settings modal offers "Download models"
 whenever the embedded backend's status reports missing model files. The
