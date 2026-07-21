@@ -37,6 +37,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to the same ref cancels an in-flight run — private-repo
+# runner minutes are metered (macOS 10x, Windows 2x). Tag runs get their
+# own group so a release build is never cancelled by a later branch push.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sidecar-test:
     name: sidecar tests (${{ matrix.os }})
@@ -110,6 +117,11 @@ jobs:
         run: |
           if [ -z "$CSC_LINK" ]; then
             echo "No CSC_LINK secret - producing an unsigned build"
+            # GitHub sets an absent secret to an EMPTY STRING, not unset;
+            # electron-builder treats a defined-but-empty CSC_LINK as "a cert
+            # path was given" and path.resolve('')-> cwd, which is not a file.
+            # Unset them so it falls back to an ad-hoc signature instead.
+            unset CSC_LINK CSC_KEY_PASSWORD
             export CADMIUM_UNSIGNED_LOCAL_BUILD=1
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
