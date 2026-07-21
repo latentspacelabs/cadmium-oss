@@ -58,7 +58,7 @@ import {
   COLORIZE_RUN_ERROR,
 } from '@/services/colorize-run';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import {
 } from '@/util/flood-fill-array';
@@ -355,41 +355,41 @@ function showColorizeErrorDialog(code, frameNr) {
   const DIALOGS = {
     [COLORIZE_PLAN_ERROR.NO_REFERENCE]: {
       title: 'Reference Frame Required',
-      message: i18n.__('hold up, you need to add or create a reference frame first.'),
+      message: t('hold up, you need to add or create a reference frame first.'),
       type: 'warning',
     },
     [COLORIZE_PLAN_ERROR.REF_LINE_MISSING]: {
       title: 'Reference Line Frame Missing',
-      message: `${i18n.__('Cannot colorize frame ')}${frameNr}${i18n.__(', because reference line frame does not exist.')}`,
+      message: `${t('Cannot colorize frame ')}${frameNr}${t(', because reference line frame does not exist.')}`,
       type: 'error',
     },
     [COLORIZE_RUN_ERROR.LINE_DATA_MISSING]: {
       title: 'Line Frame Missing',
-      message: `${i18n.__('Sorry we could not color frame ')}${frameNr - 1}${i18n.__(' because you are missing a line frame.')}`,
+      message: `${t('Sorry we could not color frame ')}${frameNr - 1}${t(' because you are missing a line frame.')}`,
       type: 'error',
     },
     [COLORIZE_RUN_ERROR.ANALYZE_LINE_MISSING]: {
       title: 'Line Frame Missing',
-      message: `${i18n.__('Sorry we could not analyze frame ')}${frameNr - 1}${i18n.__(' because you are missing a line frame.')}`,
+      message: `${t('Sorry we could not analyze frame ')}${frameNr - 1}${t(' because you are missing a line frame.')}`,
       type: 'error',
     },
     [COLORIZE_RUN_ERROR.TOO_MANY_SEGMENTS]: {
       title: 'Too Many Segments',
-      message: i18n.__("Sorry Cadmium can't analyze or colorize this frame, there are too many segments. Maybe try adjusting your analyze settings."),
+      message: t("Sorry Cadmium can't analyze or colorize this frame, there are too many segments. Maybe try adjusting your analyze settings."),
       type: 'warning',
     },
     [COLORIZE_RUN_ERROR.COLORIZE_FAILED]: {
       title: 'Colorization Failed',
-      message: `${i18n.__('Yikes! Frame ')}${frameNr}${i18n.__(' could not be colorized. We will be working on a fix as soon as possible')}`,
+      message: `${t('Yikes! Frame ')}${frameNr}${t(' could not be colorized. We will be working on a fix as soon as possible')}`,
       type: 'error',
     },
   };
   const dialog = DIALOGS[code];
   if (!dialog) { return; }
   showCustomDialog({
-    title: i18n.__(dialog.title),
+    title: t(dialog.title),
     message: dialog.message,
-    buttons: [i18n.__('OK')],
+    buttons: [t('OK')],
     defaultId: 0,
     cancelId: 0,
     type: dialog.type,
@@ -404,9 +404,9 @@ function showColorizeErrorDialog(code, frameNr) {
  */
 function showJobBusyDialog() {
   showCustomDialog({
-    title: i18n.__('Operation in Progress'),
-    message: i18n.__('Another operation is still running. Wait for it to finish (or cancel it) and try again.'),
-    buttons: [i18n.__('OK')],
+    title: t('Operation in Progress'),
+    message: t('Another operation is still running. Wait for it to finish (or cancel it) and try again.'),
+    buttons: [t('OK')],
     defaultId: 0,
     cancelId: 0,
     type: 'warning',
@@ -521,7 +521,7 @@ export default {
   async [SAVE_FILE_AS]({ dispatch }) {
     try {
       const { canceled, filePath } = await showSaveDialog({
-        title: i18n.__('Save As'), // not sure on which platform this will be shown.
+        title: t('Save As'), // not sure on which platform this will be shown.
         defaultPath: 'cadmium_project', // default filename, could also be default (abolute) path to export to
         showsTagField: false, // this would be problematic, because we batch export. Maybe later.
         filters: [
@@ -611,7 +611,7 @@ export default {
     const saveChoiceNum = await dispatch(ASK_TO_SAVE);
     if (saveChoiceNum === 2) { return; }
     const { canceled, filePaths } = await showOpenDialog({
-      title: i18n.__('Please select the folder and filename'), // not sure on which platform this will be shown.
+      title: t('Please select the folder and filename'), // not sure on which platform this will be shown.
       defaultPath: 'cadmium_project', // default filename, could also be default (abolute) path to export to
       properties: ['openFile', 'createDirectory'],
       filters: [
@@ -788,9 +788,9 @@ export default {
       };
       const dialog = EXPORT_ERROR_DIALOGS[plan.error];
       showCustomDialog({
-        title: i18n.__(dialog.title),
-        message: i18n.__(dialog.message),
-        buttons: [i18n.__('OK')],
+        title: t(dialog.title),
+        message: t(dialog.message),
+        buttons: [t('OK')],
         defaultId: 0,
         cancelId: 0,
         type: 'warning',
@@ -801,8 +801,8 @@ export default {
     let filePath = filePathOverride;
     if (!filePath) {
       const dialogResult = await showSaveDialog({
-        title: i18n.__('Please select the export folder and filename'),
-        message: i18n.__('The frame number will be appended to the filename, e.g. cadmium_export001.png'),
+        title: t('Please select the export folder and filename'),
+        message: t('The frame number will be appended to the filename, e.g. cadmium_export001.png'),
         defaultPath: 'cadmium_export',
         showsTagField: false,
         filters: [
@@ -836,9 +836,9 @@ export default {
       if (err instanceof JobAlreadyRunningError) { showJobBusyDialog(); return; }
       logError(err, 'Export failed');
       showCustomDialog({
-        title: i18n.__('Export Failed'),
-        message: `${i18n.__('Sorry, the export did not complete: ')}${err.message}`,
-        buttons: [i18n.__('OK')],
+        title: t('Export Failed'),
+        message: `${t('Sorry, the export did not complete: ')}${err.message}`,
+        buttons: [t('OK')],
         defaultId: 0,
         cancelId: 0,
         type: 'error',
@@ -985,9 +985,9 @@ export default {
     const queueVerdict = planImportQueue(fileLoadingQueue.length, NUM_SUPPORTED_FRAMES);
     if (queueVerdict === IMPORT_QUEUE_VERDICT.EMPTY) {
       showCustomDialog({
-        title: i18n.__('Unsupported File Type'),
-        message: `${i18n.__('It looks like you tried to load an image file that we do not support. Right now we support: ')}${getSupportedImageFileExtensions().join(', ').trim()}.`,
-        buttons: [i18n.__('OK')],
+        title: t('Unsupported File Type'),
+        message: `${t('It looks like you tried to load an image file that we do not support. Right now we support: ')}${getSupportedImageFileExtensions().join(', ').trim()}.`,
+        buttons: [t('OK')],
         defaultId: 0,
         cancelId: 0,
         type: 'error',
@@ -997,9 +997,9 @@ export default {
 
     if (queueVerdict === IMPORT_QUEUE_VERDICT.TOO_MANY) {
       showCustomDialog({
-        title: i18n.__('Too Many Frames'),
-        message: `${i18n.__('We currently only support up to ')}${NUM_SUPPORTED_FRAMES}${i18n.__(' frames. Please try again with fewer frames.')}`,
-        buttons: [i18n.__('OK')],
+        title: t('Too Many Frames'),
+        message: `${t('We currently only support up to ')}${NUM_SUPPORTED_FRAMES}${t(' frames. Please try again with fewer frames.')}`,
+        buttons: [t('OK')],
         defaultId: 0,
         cancelId: 0,
         type: 'warning',
@@ -1059,9 +1059,9 @@ export default {
           let alphaCheck = await checkForAlphaPixels(b64withDecoration, width, height);
           if (!alphaCheck || hasNoAlphaChannel) {
             showCustomDialog({
-              title: i18n.__('No Transparent Pixels'),
+              title: t('No Transparent Pixels'),
               message: 'Your line image has no transparent pixels. Make sure your lines are on a transparent background before importing!',
-              buttons: [i18n.__('OK')],
+              buttons: [t('OK')],
               defaultId: 0,
               cancelId: 0,
               type: 'error',
@@ -1084,9 +1084,9 @@ export default {
         const frameNumberVerdict = validateFrameNumber(frameNr);
         if (frameNumberVerdict === FRAME_NUMBER_VERDICT.MISSING) {
           showCustomDialog({
-            title: i18n.__('Frame Numbering Required'),
-            message: i18n.__('Please add some numbers to the end of your frames, like: sharkDadLines__001.png.\n') + i18n.__('This is how cadmium knows where to place images on the timeline.'),
-            buttons: [i18n.__('OK')],
+            title: t('Frame Numbering Required'),
+            message: t('Please add some numbers to the end of your frames, like: sharkDadLines__001.png.\n') + t('This is how cadmium knows where to place images on the timeline.'),
+            buttons: [t('OK')],
             defaultId: 0,
             cancelId: 0,
             type: 'warning',
@@ -1097,9 +1097,9 @@ export default {
 
         if (frameNumberVerdict === FRAME_NUMBER_VERDICT.TOO_HIGH) {
           showCustomDialog({
-            title: i18n.__('Frame Number Too High'),
-            message: i18n.__('Cadmium only supports frames numbered up to 999. Please renumber your frames.\n'),
-            buttons: [i18n.__('OK')],
+            title: t('Frame Number Too High'),
+            message: t('Cadmium only supports frames numbered up to 999. Please renumber your frames.\n'),
+            buttons: [t('OK')],
             defaultId: 0,
             cancelId: 0,
             type: 'warning',
@@ -1142,7 +1142,7 @@ export default {
 
         if (layerType === LAYER_TYPE_COLOR) {
           // TODO: We probably need to add another check in here,
-          // e.g. if the frame exists and so on)i18n.__('
+          // e.g. if the frame exists and so on)t('
           // warn user when color images are added first
           if (!colorBeforeLineWarned) {
             lineFrameCheck[fileLoadingCounter] = await getters[FRAME_IS_ORIGINAL]({
@@ -1226,9 +1226,9 @@ export default {
       } catch (err) {
         logError(err, 'There was an error loading the image.');
         showCustomDialog({
-          title: i18n.__('Image Import Failed'),
-          message: i18n.__('Yikes, image import failed. We will start working on a fix as soon as we can.'),
-          buttons: [i18n.__('OK')],
+          title: t('Image Import Failed'),
+          message: t('Yikes, image import failed. We will start working on a fix as soon as we can.'),
+          buttons: [t('OK')],
           defaultId: 0,
           cancelId: 0,
           type: 'error',
@@ -1324,9 +1324,9 @@ export default {
       if (err instanceof JobAlreadyRunningError) { showJobBusyDialog(); return; }
       logError(err, 'Image import failed');
       showCustomDialog({
-        title: i18n.__('Image Import Failed'),
-        message: i18n.__('Yikes, image import failed. We will start working on a fix as soon as we can.'),
-        buttons: [i18n.__('OK')],
+        title: t('Image Import Failed'),
+        message: t('Yikes, image import failed. We will start working on a fix as soon as we can.'),
+        buttons: [t('OK')],
         defaultId: 0,
         cancelId: 0,
         type: 'error',

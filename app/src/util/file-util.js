@@ -1,5 +1,5 @@
 /* eslint-disable  */
-import { i18n } from './i18nVue';
+import { t } from './i18n';
 import { getUserDataPath } from '@/platform';
 
 const fs = require('fs');
@@ -337,9 +337,9 @@ export function stripMetaData(filePath) {
 export function exportSVGOptions() {
   return new Promise((resolve) => {
     showCustomDialog({
-      title: i18n.__('SVG Export Options'),
-      message: i18n.__('What quality level do you want to export your SVG? \n (NOTE: SVG will only export the colors in your color palette. For best results, turn off Outlines layer'),
-      buttons: [i18n.__('High Quality (slower)'), i18n.__('Medium Quality'), i18n.__('Low Quality (faster)'), i18n.__('Cancel')],
+      title: t('SVG Export Options'),
+      message: t('What quality level do you want to export your SVG? \n (NOTE: SVG will only export the colors in your color palette. For best results, turn off Outlines layer'),
+      buttons: [t('High Quality (slower)'), t('Medium Quality'), t('Low Quality (faster)'), t('Cancel')],
       defaultId: 2,
       cancelId: 3,
       type: 'info'
@@ -352,9 +352,9 @@ export function exportSVGOptions() {
 export function saveOptions() {
   return new Promise((resolve) => {
     showCustomDialog({
-      title: i18n.__('Save Your Work'),
-      message: i18n.__('Would you like to save your changes?'),
-      buttons: [i18n.__('Yes'), i18n.__('No'), i18n.__('Cancel')],
+      title: t('Save Your Work'),
+      message: t('Would you like to save your changes?'),
+      buttons: [t('Yes'), t('No'), t('Cancel')],
       defaultId: 0,
       cancelId: 2,
       type: 'warning'

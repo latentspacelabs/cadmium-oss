@@ -66,7 +66,7 @@
 // :show-input="true"
 // :input-size="mini"
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import { mapGetters, mapMutations } from 'vuex';
 
@@ -125,10 +125,10 @@ export default {
     };
   },
   computed: {
-    FillLabel() { return i18n.__('FILL'); },
-    ModeLabel() { return i18n.__('Mode'); },
-    fillModeTippy() { return i18n.__('Fill Tool Mode Toggle (D)'); },
-    alphaBoundaryTippy() { return i18n.__('This slider adjusts how sensitive the fill tool is to transparent pixels. All the way to the right only sees completely solid color as boundaries.'); },
+    FillLabel() { return t('FILL'); },
+    ModeLabel() { return t('Mode'); },
+    fillModeTippy() { return t('Fill Tool Mode Toggle (D)'); },
+    alphaBoundaryTippy() { return t('This slider adjusts how sensitive the fill tool is to transparent pixels. All the way to the right only sees completely solid color as boundaries.'); },
     ...mapGetters({
       mode: FILL_TOOL_MODE,
       expand: FILL_TOOL_EXPAND,

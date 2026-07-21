@@ -22,7 +22,7 @@ import * as Sentry from '@sentry/electron';
 import { init } from '@sentry/electron/dist/main';
 
 // Local utility imports
-import { i18n, menuSetLocale } from './util/i18n';
+import { t, menuSetLocale } from './util/i18n';
 import { logError } from './util/error-util';
 import { mainMenuFactory, rebuildMenu } from './menu';
 import { getInstance } from './util/TempFileManager';
@@ -421,9 +421,9 @@ app.on('ready', async () => {
   ipcMain.on('file-too-old', (event) => {
     console.log('GOT MESSAAGE');
     win.webContents.send('showCustomDialog', {
-      title: i18n.__('Cadmium File Too Old'),
-      message: i18n.__('Unfortunately, project files older than v 0.3.0 are no longer compatible. Apologies, friend.'),
-      buttons: [i18n.__('OK')],
+      title: t('Cadmium File Too Old'),
+      message: t('Unfortunately, project files older than v 0.3.0 are no longer compatible. Apologies, friend.'),
+      buttons: [t('OK')],
       defaultId: 0,
       type: 'error'
     });
@@ -620,10 +620,10 @@ autoUpdater.on('update-available', (updateInfo) => {
 
   if (shouldForceUpdate(updateInfo.version, app.getVersion())) {
     showDialogFromMain(win, {
-      title: i18n.__('Cadmium Update Available'),
-      message: `${i18n.__('Hello! Cadmium is out of date and must be updated. But good news, you can download the latest version ')}${updateInfo.version}${i18n.__(' and continue coloring!')}`,
+      title: t('Cadmium Update Available'),
+      message: `${t('Hello! Cadmium is out of date and must be updated. But good news, you can download the latest version ')}${updateInfo.version}${t(' and continue coloring!')}`,
       detail: releaseNotesText,
-      buttons: [i18n.__('QUIT'), i18n.__('UPDATE')],
+      buttons: [t('QUIT'), t('UPDATE')],
       defaultId: 1,
       type: 'info'
     }).then(result => {
@@ -637,10 +637,10 @@ autoUpdater.on('update-available', (updateInfo) => {
     });
   } else {
     showDialogFromMain(win, {
-      title: i18n.__('Cadmium Update Available'),
-      message: `${i18n.__('Hey! A new version of Cadmium ')}${updateInfo.version}${i18n.__(' is available. Would you like to download the update?')}`,
+      title: t('Cadmium Update Available'),
+      message: `${t('Hey! A new version of Cadmium ')}${updateInfo.version}${t(' is available. Would you like to download the update?')}`,
       detail: releaseNotesText,
-      buttons: [i18n.__('YES PLEASE'), i18n.__('NO I am afraid of change')],
+      buttons: [t('YES PLEASE'), t('NO I am afraid of change')],
       defaultId: 0,
       type: 'info'
     }).then(result => {
@@ -661,9 +661,9 @@ autoUpdater.on('update-downloaded', () => {
   win.webContents.send('update-in-progress', false);
   
   showDialogFromMain(win, {
-    title: i18n.__('Cadmium Update Download Complete'),
-    message: `${i18n.__('Download Complete')}${i18n.__(' Would you like to install the update and restart?')}`,
-    buttons: [i18n.__('Install and Restart'), i18n.__('Install Later')],
+    title: t('Cadmium Update Download Complete'),
+    message: `${t('Download Complete')}${t(' Would you like to install the update and restart?')}`,
+    buttons: [t('Install and Restart'), t('Install Later')],
     defaultId: 0,
     type: 'info'
   }).then(result => {
@@ -671,9 +671,9 @@ autoUpdater.on('update-downloaded', () => {
       console.log("User chose to install now");
       if (process.platform == 'darwin') {
         showDialogFromMain(win, {
-          title: i18n.__('Cadmium Update'),
-          message: i18n.__('Cadmium will now quit and update. Once the update is complete, Cadmium will restart. Do not attempt to manually restart Cadmium until the update is complete. This may take a few minutes.'),
-          buttons: [i18n.__('OK')],
+          title: t('Cadmium Update'),
+          message: t('Cadmium will now quit and update. Once the update is complete, Cadmium will restart. Do not attempt to manually restart Cadmium until the update is complete. This may take a few minutes.'),
+          buttons: [t('OK')],
           defaultId: 0,
           type: 'info'
         }).then(() => {
@@ -716,10 +716,10 @@ export function getWebContents() {
 
 export function showSupportDialog() {
   showDialogFromMain(win, {
-    title: i18n.__('Cadmium Support'),
-    message: `${i18n.__('For help with Cadmium, please open an issue at https://github.com/latentspacelabs/cadmium-oss/issues.')}`,
+    title: t('Cadmium Support'),
+    message: `${t('For help with Cadmium, please open an issue at https://github.com/latentspacelabs/cadmium-oss/issues.')}`,
     detail: '',
-    buttons: [i18n.__('OK')],
+    buttons: [t('OK')],
     defaultId: 0,
     type: 'info'
   });   

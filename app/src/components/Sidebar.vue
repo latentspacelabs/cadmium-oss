@@ -71,7 +71,7 @@
 <script> /* eslint-disable linebreak-style */
 import { mapGetters, mapMutations } from 'vuex';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import {
   TOOL_CONTROL_ITEM_IS_VISIBLE,
@@ -132,13 +132,13 @@ export default {
     };
   },
   computed: {
-    colorWheelTippy() { return i18n.__('Color Wheel (C)'); },
-    handTippy() { return i18n.__('Hand (Spacebar)'); },
-    zoomTippy() { return i18n.__('Zoom (Z + option, right click + drag)'); },
-    eyeDropperTippy() { return i18n.__('Eye Dropper (i)'); },
-    fillTippy() { return i18n.__('Fill Tool (F)'); },
-    penTippy() { return i18n.__('Pen (B)'); },
-    eraserTippy() { return i18n.__('Eraser (E)'); },
+    colorWheelTippy() { return t('Color Wheel (C)'); },
+    handTippy() { return t('Hand (Spacebar)'); },
+    zoomTippy() { return t('Zoom (Z + option, right click + drag)'); },
+    eyeDropperTippy() { return t('Eye Dropper (i)'); },
+    fillTippy() { return t('Fill Tool (F)'); },
+    penTippy() { return t('Pen (B)'); },
+    eraserTippy() { return t('Eraser (E)'); },
     ...mapGetters({
       sidebarItemVisibleById: TOOL_CONTROL_ITEM_IS_VISIBLE,
     }),

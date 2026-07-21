@@ -263,6 +263,12 @@ two-reference colorization (length 1 today).
   means `npm run test:e2e` runs the custom CDP runner
   (`node tests/e2e/run.js`), not the dead Cypress scaffold. Don't "fix" the
   duplicate by keeping the first one.
+- **i18n is i18next** (`app/src/util/i18n.js`, shared by main + renderer;
+  keys are natural-English sentences, ja falls back to en). The catalogs in
+  `app/locales/` are bundled at build time and **never written at runtime** —
+  after adding/changing `t()` strings run `npm run i18n:extract` explicitly
+  to refresh them (dynamic keys like `t(action)` are invisible to the parser
+  and survive via `keepRemoved`; see `app/i18next-parser.config.js`).
 
 **Behavioral traps (the false-alarm generators)**
 

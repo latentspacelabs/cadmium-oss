@@ -91,7 +91,7 @@
 <script> /* eslint-disable linebreak-style */
 import { mapGetters, mapMutations } from 'vuex';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 // import InputRange from '@/components/InputRange.vue';
 import TwoStateToggle from '@/components/TwoStateToggle.vue';
@@ -143,15 +143,15 @@ export default {
     penDrawModeDisabled() {
       return false;
     },
-    ModeLabel() { return i18n.__('Mode'); },
-    SizeLabel() { return i18n.__('Size'); },
-    PenLabel() { return i18n.__('PEN'); },
-    modeTippy() { return i18n.__('Pen (B) or Erase (E)'); },
+    ModeLabel() { return t('Mode'); },
+    SizeLabel() { return t('Size'); },
+    PenLabel() { return t('PEN'); },
+    modeTippy() { return t('Pen (B) or Erase (E)'); },
     optionsTippy() {
-      return i18n.__('draw over/under/within existing pixels');
+      return t('draw over/under/within existing pixels');
     },
-    DrawOptionsLabel() { return i18n.__('Draw Options:'); },
-    PressureLabel() { return i18n.__('Pressure'); },
+    DrawOptionsLabel() { return t('Draw Options:'); },
+    PressureLabel() { return t('Pressure'); },
     ...mapGetters({
       penDiameter: PEN_TOOL_DIAMETER,
       usePressure: IS_PRESSURE_ENABLED,

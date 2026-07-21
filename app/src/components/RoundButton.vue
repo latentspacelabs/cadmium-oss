@@ -14,7 +14,7 @@
 </template> <!-- eslint-disable linebreak-style -->
 <script> /* eslint-disable linebreak-style */
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 export default {
   data() {
@@ -39,7 +39,7 @@ export default {
     },
   },
   computed: {
-    buttonText() { return i18n.__(this.text); },
+    buttonText() { return t(this.text); },
   },
   methods: {
     onClick() {

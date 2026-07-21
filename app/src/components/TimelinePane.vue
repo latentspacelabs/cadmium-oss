@@ -154,7 +154,7 @@
 <!-- eslint-disable linebreak-style -->
 <script> /* eslint-disable linebreak-style */
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import { mapGetters, mapMutations, mapActions } from 'vuex';
 
@@ -220,10 +220,10 @@ export default {
     };
   },
   computed: {
-    outlineDropzoneText() { return i18n.__('1. Drop your outline frames here'); },
-    colorDropzoneText() { return i18n.__('2. Drop your color frames here'); },
-    outlinesTitle() { return i18n.__('Outlines'); },
-    colorTitle() { return i18n.__('Color'); },
+    outlineDropzoneText() { return t('1. Drop your outline frames here'); },
+    colorDropzoneText() { return t('2. Drop your color frames here'); },
+    outlinesTitle() { return t('Outlines'); },
+    colorTitle() { return t('Color'); },
     ...mapGetters({
       frameCount: FRAME_COUNT,
       layerHasFrames: LAYER_HAS_FRAMES,
@@ -246,8 +246,8 @@ export default {
     playPauseIcon() {
       return this.playerIsPlaying ? iconPause : iconPlay;
     },
-    playPauseTippy() { return this.playerIsPlaying ? i18n.__('Pause (Return)') : i18n.__('Play (Return)'); },
-    loopTippy() { return this.loopEnabled ? i18n.__('Disable Loop (L)') : i18n.__('Enable Loop (L)'); },
+    playPauseTippy() { return this.playerIsPlaying ? t('Pause (Return)') : t('Play (Return)'); },
+    loopTippy() { return this.loopEnabled ? t('Disable Loop (L)') : t('Enable Loop (L)'); },
 
     colorLayerBgImg() { return colorLayerBgImg; },
     loopEnabled() { return this.$store.state.playerLoopEnabled; },

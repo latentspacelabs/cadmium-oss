@@ -43,7 +43,7 @@
 
 <script>
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import { cancelModal } from '@/util/modal';
 
@@ -131,15 +131,15 @@ export default {
     },
     cancelBtnText() {
       if (this.currentTask === TASK_EXPORT) {
-        return this.exportCanceled ? i18n.__('Stopping Export...') : i18n.__('Stop');
+        return this.exportCanceled ? t('Stopping Export...') : t('Stop');
       }
       if (this.currentTask === TASK_IMPORT_COLOR_NO_LINE) {
-        return this.analyzeCanceled ? i18n.__('Stopping Color Import...') : i18n.__('Stop');
+        return this.analyzeCanceled ? t('Stopping Color Import...') : t('Stop');
       }
       if (this.currentTask === TASK_COLOR_UPDATE) {
-        return this.updateColorsCanceled ? i18n.__('Stopping Color Update...') : i18n.__('Stop');
+        return this.updateColorsCanceled ? t('Stopping Color Update...') : t('Stop');
       }
-      return this.colorizationCanceled ? i18n.__('Stopping Colorization...') : i18n.__('Stop');
+      return this.colorizationCanceled ? t('Stopping Colorization...') : t('Stop');
     },
     timeRemainingString() {
       let taskTime;
@@ -175,17 +175,17 @@ export default {
     currentTaskText() {
       switch (this.currentTask) {
         case TASK_COLORIZATION:
-          return i18n.__('Colorizing Frame');
+          return t('Colorizing Frame');
         case TASK_SEGMENTATION_MAP_GENERATION:
-          return i18n.__('Analyzing Frame');
+          return t('Analyzing Frame');
         case TASK_EXPORT:
           return this.exportingColorsSeparately
-            ? i18n.__('Exporting Colors Separately')
-            : i18n.__('Exporting Frame');
+            ? t('Exporting Colors Separately')
+            : t('Exporting Frame');
         case TASK_COLOR_UPDATE:
-          return i18n.__('Updating Colors');
+          return t('Updating Colors');
         case TASK_IMPORT_COLOR_NO_LINE:
-          return i18n.__('Analyzing Frame');
+          return t('Analyzing Frame');
         default:
           return '';
       }
@@ -197,11 +197,11 @@ export default {
       if (this.numTotal === 0) return 0;
       return Math.round(((this.numFinished) / this.numTotal) * 100);
     },
-    remainingText() { return i18n.__('remaining'); },
+    remainingText() { return t('remaining'); },
     processingFrameText() {
-      return i18n.__('Processing frame');
+      return t('Processing frame');
     },
-    ofText() { return i18n.__('of'); },
+    ofText() { return t('of'); },
   },
   methods: {
     onCancelButtonClick() {

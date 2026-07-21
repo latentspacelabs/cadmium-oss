@@ -7,7 +7,7 @@
 
 <script>
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 export default {
   props: {
@@ -21,7 +21,7 @@ export default {
     },
   },
   computed: {
-    btnContent() { return this.content || i18n.__('Play/Pause (Return)'); },
+    btnContent() { return this.content || t('Play/Pause (Return)'); },
   },
   methods: {
     onClick() {

@@ -206,7 +206,7 @@
 <script> /* eslint-disable linebreak-style */
 /* eslint-disable-next-line */
 import { mapGetters, mapMutations, mapActions } from 'vuex';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import {
   SEG_OPTIONS_COLLAPSE,
@@ -256,24 +256,24 @@ export default {
       return !this.layerHasFrames(INITIAL_LINE_LAYER_ID)
         || !this.layerHasFrames(INITIAL_COLOR_LAYER_ID);
     },
-    toggleAutoAlphaTippy() { return i18n.__('If enabled, the alpha threshold will be automatically determined.'); },
-    aiGapCloserToggleTippy() { return i18n.__('Enable AI-powered gap closing for better results with sketchy linework.'); },
-    aiModeText() { return i18n.__('ENABLED'); },
-    heuristicText() { return i18n.__('DISABLED'); },
-    enabledText() { return i18n.__('AUTO'); },
-    disabledText() { return i18n.__('AUTO'); },
-    aiGapCloserTippy() { return i18n.__('The higher the number, the more Cadmium will use ai to close gaps.'); },
-    tbGapCloserTippy() { return i18n.__('The higher the number, the more Cadmium will use traditional methods close gaps in your linework.'); },
-    segOptionsTitle() { return i18n.__('ANALYZE SETTINGS'); },
-    LineThresholdTippy() { return i18n.__('This controls how opaque a pixel needs to be in order to be considered a boundary. A higher threshold value will include more more transparent pixels, and a lower value will exclude them.'); },
-    minSegSizeTippy() { return i18n.__('This is the minimum numbers of pixels inside of a color segment. If you are getting a lot of extra small color areas inside of rough lines, try increasing this value to merge these small areas into larger ones'); },
-    rainbowLabel() { return i18n.__('Rainbow Return'); },
-    aiGapCloserLabel() { return i18n.__('AI Gap Closing'); },
-    gapClosingStrengthLabel() { return i18n.__('Gap Closing Strength'); },
-    tbGapCloserLabel() { return i18n.__('Trapped Ball Size'); },
-    MinSegSizeLabel() { return i18n.__('Minimum Segment Size'); },
-    LineThresholdLabel() { return i18n.__('Threshold'); },
-    rainbowReturnTippy() { return i18n.__('After analyzing a frame, return a colorful image that shows the different color segments.'); },
+    toggleAutoAlphaTippy() { return t('If enabled, the alpha threshold will be automatically determined.'); },
+    aiGapCloserToggleTippy() { return t('Enable AI-powered gap closing for better results with sketchy linework.'); },
+    aiModeText() { return t('ENABLED'); },
+    heuristicText() { return t('DISABLED'); },
+    enabledText() { return t('AUTO'); },
+    disabledText() { return t('AUTO'); },
+    aiGapCloserTippy() { return t('The higher the number, the more Cadmium will use ai to close gaps.'); },
+    tbGapCloserTippy() { return t('The higher the number, the more Cadmium will use traditional methods close gaps in your linework.'); },
+    segOptionsTitle() { return t('ANALYZE SETTINGS'); },
+    LineThresholdTippy() { return t('This controls how opaque a pixel needs to be in order to be considered a boundary. A higher threshold value will include more more transparent pixels, and a lower value will exclude them.'); },
+    minSegSizeTippy() { return t('This is the minimum numbers of pixels inside of a color segment. If you are getting a lot of extra small color areas inside of rough lines, try increasing this value to merge these small areas into larger ones'); },
+    rainbowLabel() { return t('Rainbow Return'); },
+    aiGapCloserLabel() { return t('AI Gap Closing'); },
+    gapClosingStrengthLabel() { return t('Gap Closing Strength'); },
+    tbGapCloserLabel() { return t('Trapped Ball Size'); },
+    MinSegSizeLabel() { return t('Minimum Segment Size'); },
+    LineThresholdLabel() { return t('Threshold'); },
+    rainbowReturnTippy() { return t('After analyzing a frame, return a colorful image that shows the different color segments.'); },
 
     ...mapGetters({
       collapse: SEG_OPTIONS_COLLAPSE,

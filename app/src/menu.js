@@ -1,7 +1,7 @@
 /* eslint-disable */
 const { app, Menu, webContents } = require('electron');
 
-import { i18n } from './util/i18n';
+import { t } from './util/i18n';
 
 import { getWebContents, showSupportDialog } from './background';
 import {
@@ -52,10 +52,10 @@ let template = [];
 export async function mainMenuFactory(colorizationInProgress = false) {
   // File Menu
   const fileMenu = {
-    label: i18n.__('File'),
+    label: t('File'),
     submenu: [
       {
-        label: i18n.__('New Project'),
+        label: t('New Project'),
         accelerator: 'CommandOrControl+N',
         click: () => {
           console.log('New Project Menu clicked'); // logged in terminal (not dev tools)
@@ -66,7 +66,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Open'),
+        label: t('Open'),
         accelerator: 'CommandOrControl+O',
         click: () => {
           console.log('Open Menu clicked'); // logged in terminal (not dev tools)
@@ -77,7 +77,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Open Recent'),
+        label: t('Open Recent'),
         role: 'recentdocuments',
         submenu: [
           {
@@ -87,7 +87,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         ],
       },
       {
-        label: i18n.__('Save'),
+        label: t('Save'),
         id: SAVE_FILE,
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+S',
@@ -100,7 +100,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Save As'),
+        label: t('Save As'),
         accelerator: 'Shift+CommandOrControl+S',
         enabled: !colorizationInProgress,
         click: () => {
@@ -113,10 +113,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
       },
       { type: 'separator' },
       {
-        label: i18n.__('Import'),
+        label: t('Import'),
         submenu: [
           {
-            label: i18n.__('Import Line Frames'),
+            label: t('Import Line Frames'),
             accelerator: 'CommandOrControl+I',
             click: () => {
               console.log('Import Line Menu clicked'); // logged in terminal (not dev tools)
@@ -128,7 +128,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
             },
           },
           {
-            label: i18n.__('Import Color Frames'),
+            label: t('Import Color Frames'),
             accelerator: 'CommandOrControl+Shift+I',
             click: () => {
               console.log('Import Color Menu clicked'); // logged in terminal (not dev tools)
@@ -142,7 +142,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         ],
       },
       {
-        label: i18n.__('Export'),
+        label: t('Export'),
         accelerator: 'CommandOrControl+E',
         click: () => {
           console.log('Export Menu clicked'); // logged in terminal (not dev tools)
@@ -166,7 +166,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Export Colors Separated'),
+        label: t('Export Colors Separated'),
         accelerator: 'CommandOrControl+Shift+E',
         click: () => {
           console.log('Export Colors Separated clicked'); // logged in terminal (not dev tools)
@@ -184,10 +184,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
 
   // Edit Menu (find undo/redo by id)
   const editMenu = {
-    label: i18n.__('Edit'),
+    label: t('Edit'),
     submenu: [
       {
-        label: i18n.__('Undo'),
+        label: t('Undo'),
         id: UNDO_ACTION,
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+Z',
@@ -200,7 +200,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Redo'),
+        label: t('Redo'),
         id: REDO_ACTION,
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+Shift+Z',
@@ -213,10 +213,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Select Frames'),
+        label: t('Select Frames'),
         submenu: [
           {
-            label: i18n.__('All Line Frames'),
+            label: t('All Line Frames'),
             accelerator: 'CommandOrControl+A',
             id: SELECT_ALL_LINE_FRAMES_FROM_MENU,
             enabled: !colorizationInProgress,
@@ -229,7 +229,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
             },
           },
           {
-            label: i18n.__('All Color Frames'),
+            label: t('All Color Frames'),
             accelerator: 'CommandOrControl+A',
             id: SELECT_ALL_COLOR_FRAMES_FROM_MENU,
             enabled: !colorizationInProgress,
@@ -244,7 +244,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         ],
       },
       {
-        label: i18n.__('Deselect All Frames'),
+        label: t('Deselect All Frames'),
         id: DESELECT_ALL_FRAMES_FROM_MENU,
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+D',
@@ -257,7 +257,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Delete Selected Frames'),
+        label: t('Delete Selected Frames'),
         enabled: !colorizationInProgress,
         accelerator: 'Delete',
         click: () => {
@@ -270,29 +270,29 @@ export async function mainMenuFactory(colorizationInProgress = false) {
       },
       { type: 'separator' },
       {
-        label: i18n.__('Text'),
+        label: t('Text'),
         submenu: [
           {
             role: 'undo',
             accelerator: '',
-            label: i18n.__('Undo Text'),
+            label: t('Undo Text'),
           },
           { role: 'redo',
             accelerator: '',
-            label: i18n.__('Redo Text'),
+            label: t('Redo Text'),
           },
           { type: 'separator' },
           { role: 'selectAll',
-            label: i18n.__('Select All Text'),
+            label: t('Select All Text'),
           },
           { role: 'cut',
-            label: i18n.__('Cut Text'),
+            label: t('Cut Text'),
           },
           { role: 'copy',
-            label: i18n.__('Copy Text'),
+            label: t('Copy Text'),
           },
           { role: 'paste',
-            label: i18n.__('Paste Text'),
+            label: t('Paste Text'),
           },
           { role: 'delete',
             label: 'delete text',
@@ -319,10 +319,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
 
   // Timeline Menu (frame selection controls)
   const timelineMenu = {
-    label: i18n.__('Timeline'),
+    label: t('Timeline'),
     submenu: [
       {
-        label: i18n.__('Play/Pause'),
+        label: t('Play/Pause'),
         click: () => {
           const webContents = getWebContents();
           // console.log(webContents)
@@ -332,7 +332,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Toggle Loop'),
+        label: t('Toggle Loop'),
         accelerator: 'L',
         click: () => {
           const webContents = getWebContents();
@@ -343,7 +343,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Previous Unique Frame'),
+        label: t('Previous Unique Frame'),
         // accelerator: 'Left',
         click: () => {
           const webContents = getWebContents();
@@ -354,7 +354,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Next Unique Frame'),
+        label: t('Next Unique Frame'),
         // accelerator: 'Right',
         click: () => {
           const webContents = getWebContents();
@@ -369,10 +369,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
 
   // Process Menu
   const processMenu = {
-    label: i18n.__('Process'),
+    label: t('Process'),
     submenu: [
       {
-        label: i18n.__('Analyze Frames'),
+        label: t('Analyze Frames'),
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+Shift+A',
         click: () => {
@@ -389,7 +389,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Colorize Frames'),
+        label: t('Colorize Frames'),
         enabled: !colorizationInProgress,
         accelerator: 'CommandOrControl+Shift+C',
         click: () => {
@@ -412,14 +412,14 @@ export async function mainMenuFactory(colorizationInProgress = false) {
 
   // View Menu
   const viewMenu = {
-    label: i18n.__('View'),
+    label: t('View'),
     submenu: [
       {
         role: 'resetzoom',
-        label: i18n.__('Actual Size'),
+        label: t('Actual Size'),
       },
       {
-        label: i18n.__('Zoom In'),
+        label: t('Zoom In'),
         accelerator: 'CommandOrControl+=',
         click: () => {
           const webContents = getWebContents();
@@ -427,7 +427,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Zoom Out'),
+        label: t('Zoom Out'),
         accelerator: 'CommandOrControl+-',
         click: () => {
           const webContents = getWebContents();
@@ -435,7 +435,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Show/Hide Timeline'),
+        label: t('Show/Hide Timeline'),
         accelerator: 'T',
         click: () => {
           const webContents = getWebContents();
@@ -446,7 +446,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Reset Canvas View'),
+        label: t('Reset Canvas View'),
         accelerator: 'Home',
         click: () => {
           const webContents = getWebContents();
@@ -460,10 +460,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
   // Help Menu
   const helpMenu = {
     role: 'help',
-    label: i18n.__('Help'),
+    label: t('Help'),
     submenu: [
       {
-        label: i18n.__('Learn More'),
+        label: t('Learn More'),
         click: async () => {
           /* eslint-disable import/no-extraneous-dependencies */
           /* eslint-disable global-require */
@@ -472,7 +472,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Terms of Agreement'),
+        label: t('Terms of Agreement'),
         click: async () => {
           /* eslint-disable import/no-extraneous-dependencies */
           /* eslint-disable global-require */
@@ -481,21 +481,21 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: i18n.__('Launch Tour'),
+        label: t('Launch Tour'),
         click: () => {
           const webContents = getWebContents();
           webContents.send('relaunch-tour', true);
         },
       },
       {
-        label: i18n.__('Show Welcome Modal'),
+        label: t('Show Welcome Modal'),
         click: () => {
           const webContents = getWebContents();
           webContents.send('show-welcome-modal', true);
         },
       },
       {
-        label: i18n.__('Support'),
+        label: t('Support'),
         click: () => {
           console.log("SHOW SUPPORT DIALOG");
           showSupportDialog();
@@ -507,10 +507,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
   // (⌘,), so this standalone menu is only added on Windows/Linux to keep it
   // reachable there. The OSS build has no accounts, so there is no Account menu.
   const settingsMenu = {
-    label: i18n.__('Settings'),
+    label: t('Settings'),
     submenu: [
       {
-        label: i18n.__('Server Settings…'),
+        label: t('Server Settings…'),
         click: () => {
           getWebContents().send('show-server-settings', true);
         },
@@ -520,23 +520,23 @@ export async function mainMenuFactory(colorizationInProgress = false) {
 
   // Mac App Menu
   const macAppMenu = {
-    label: i18n.__('Cadmium'),
+    label: t('Cadmium'),
     submenu: [
-      { role: 'about', label: i18n.__('About Cadmium') },
+      { role: 'about', label: t('About Cadmium') },
       { type: 'separator' },
       {
-        label: i18n.__('Server Settings…'),
+        label: t('Server Settings…'),
         accelerator: 'CommandOrControl+,',
         click: () => {
           getWebContents().send('show-server-settings', true);
         },
       },
       { type: 'separator' },
-      { role: 'hide', label: i18n.__('Hide Cadmium') },
-      { role: 'hideothers', label: i18n.__('Hide Others') },
-      { role: 'unhide', label: i18n.__('Show All') },
+      { role: 'hide', label: t('Hide Cadmium') },
+      { role: 'hideothers', label: t('Hide Others') },
+      { role: 'unhide', label: t('Show All') },
       { type: 'separator' },
-      { role: 'quit', label: i18n.__('Quit Cadmium') },
+      { role: 'quit', label: t('Quit Cadmium') },
     ],
   };
 

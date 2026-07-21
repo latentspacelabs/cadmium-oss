@@ -58,7 +58,7 @@
 /* eslint-disable linebreak-style */
 import { mapGetters, mapMutations } from 'vuex';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import showCustomDialog from '@/util/customDialog';
 
 import {
@@ -111,11 +111,11 @@ export default {
     };
   },
   computed: {
-    ExportLabel() { return i18n.__('EXPORT'); },
-    ExportSeparatedLabel() { return i18n.__('Export Colors Separated'); },
-    analyzeTippy() { return i18n.__('This button will analyze the different regions of the selected frames, and return random colors to show you which areas are separated by lines.'); },
-    gapCloserTippy() { return i18n.__('The higher the number, the more Cadmium will automatically close gaps in your linework.'); },
-    colorizeTippy() { return i18n.__('AI Magic'); },
+    ExportLabel() { return t('EXPORT'); },
+    ExportSeparatedLabel() { return t('Export Colors Separated'); },
+    analyzeTippy() { return t('This button will analyze the different regions of the selected frames, and return random colors to show you which areas are separated by lines.'); },
+    gapCloserTippy() { return t('The higher the number, the more Cadmium will automatically close gaps in your linework.'); },
+    colorizeTippy() { return t('AI Magic'); },
     ...mapGetters({
       timelineHasFrames: TIMELINE_HAS_FRAMES,
       selectedFrameNrsOnAllLayers: SELECTED_FRAME_NRS_ON_ALL_LAYERS,
@@ -144,18 +144,18 @@ export default {
     colorizeButtonText() {
       switch (this.colorizeButtonAction) {
         case colorizeButtonActions.COLORIZE_ALL:
-          return i18n.__('Colorize');
+          return t('Colorize');
         case colorizeButtonActions.COLORIZE_SELECTION:
-          return i18n.__('Colorize Selection');
+          return t('Colorize Selection');
         // case colorizeButtonActions.CANCEL_COLORIZATION:
           // return 'Cancel Colorization';
         case colorizeButtonActions.COLORIZING:
           if (!this.analyzeModeOnly) {
-            return i18n.__('Colorizing');
+            return t('Colorizing');
           }
           /* falls through */
         default:
-          return i18n.__('Colorize');
+          return t('Colorize');
       }
     },
     greyOutAnalyzeButton() {
@@ -173,18 +173,18 @@ export default {
     analyzeButtonText() {
       switch (this.analyzeButtonAction) {
         case analyzeButtonActions.ANALYZE_ALL:
-          return i18n.__('Analyze');
+          return t('Analyze');
         case analyzeButtonActions.ANALYZE_SELECTION:
-          return i18n.__('Analyze Selection');
+          return t('Analyze Selection');
         case analyzeButtonActions.CANCEL_ANALYZATION:
-          return i18n.__('Cancel Analyzation');
+          return t('Cancel Analyzation');
         case analyzeButtonActions.ANALYZING:
           if (this.analyzeModeOnly) {
-            return i18n.__('Analyzing');
+            return t('Analyzing');
           }
           /* falls through */
         default:
-          return i18n.__('Analyze');
+          return t('Analyze');
       }
     },
 

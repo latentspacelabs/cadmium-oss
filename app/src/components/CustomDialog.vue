@@ -33,7 +33,7 @@
 </template>
 
 <script>
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 export default {
   name: 'CustomDialog',
@@ -91,7 +91,7 @@ export default {
     },
   },
   computed: {
-    appNameAlt() { return i18n.__('Cadmium'); },
+    appNameAlt() { return t('Cadmium'); },
     iconSrc() {
       // Use different Cadmium logos based on dialog type
       switch (this.type) {

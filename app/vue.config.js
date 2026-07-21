@@ -31,6 +31,23 @@ module.exports = {
           .end()
           .type('javascript/auto');
       },
+      // The main process is bundled by the plugin's own webpack 4, whose
+      // parser predates optional chaining — and i18next ships `?.` in its
+      // published dist. Transpile JUST i18next for the main bundle (chrome 79
+      // target = last Chrome without `?.`/`??`). The webpack 5 renderer needs
+      // nothing.
+      chainWebpackMainProcess: (config) => {
+        config.module
+          .rule('i18next-compat')
+          .test(/\.js$/)
+          .include.add(/node_modules[\\/]i18next[\\/]/)
+          .end()
+          .use('babel-loader')
+          .loader('babel-loader')
+          .options({
+            presets: [['@babel/preset-env', { targets: { chrome: '79' } }]],
+          });
+      },
       // when removeElectronJunk is set to true, the console output will be cleaned,
       // see https://nklayman.github.io/vue-cli-plugin-electron-builder/guide/configuration.html#electron-s-junk-terminal-output
       removeElectronJunk: false,
@@ -38,12 +55,10 @@ module.exports = {
       builderOptions: {
         // options placed here will be merged with default configuration
         // and passed to electron-builder
+        // locales/ is no longer shipped as extra files: the i18next catalogs
+        // are require'd into the bundles at build time (src/util/i18n.js) and
+        // nothing reads Resources/locales at runtime anymore.
         extraFiles: [
-          {
-            from: 'locales/',
-            to: 'Resources/locales/',
-            filter: ['**/*'],
-          },
           {
             from: 'src/assets/cdm/',
             to: 'Resources/assets/cdm/',

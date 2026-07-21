@@ -127,7 +127,7 @@
 <script> /* eslint-disable linebreak-style */
 /* eslint-disable-next-line */
 import { mapGetters, mapMutations, mapActions } from 'vuex';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import VueResizable from 'vue-resizable';
 
 import {
@@ -220,9 +220,9 @@ export default {
     refCanvasContainerScale() { return this.refCanScale; },
     refCanvasWidth() { return this.refCanvasSize.width; },
     refCanvasHeight() { return this.refCanvasSize.height; },
-    referenceTitle() { return i18n.__('REFERENCE PANEL'); },
-    libraryTitle() { return i18n.__('LIBRARY'); },
-    resetButtonText() { return i18n.__('Reset View'); },
+    referenceTitle() { return t('REFERENCE PANEL'); },
+    libraryTitle() { return t('LIBRARY'); },
+    resetButtonText() { return t('Reset View'); },
     ...mapGetters({
       referenceCollapse: REFERENCE_COLLAPSE,
       refCanvasSize: REF_CANVAS_SIZE,

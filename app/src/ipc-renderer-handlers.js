@@ -34,7 +34,7 @@ import {
   OPEN_FILE_FROM_OS,
 } from '@/store/action-types';
 
-import { i18n } from './util/i18nVue';
+import { t } from './util/i18n';
 
 // Import custom dialog utility (alternative to dialog.showMessageBox)
 import showCustomDialog from '@/util/customDialog';
@@ -58,13 +58,13 @@ function handleCommitMutationRequest(event, config) {
 
 async function serverErrorDialog() {
   const hasUnsavedChanges = store.getters[UNSAVED_CHANGES];
-  const buttons = hasUnsavedChanges ? [i18n.__('Save and Quit'), i18n.__('Quit')] : [i18n.__('Quit')];
+  const buttons = hasUnsavedChanges ? [t('Save and Quit'), t('Quit')] : [t('Quit')];
   const serverErrorOptions = () => {
     return new Promise((resolve) => {
               showCustomDialog({
-          title: i18n.__('Server Error'),
-          message: i18n.__('Cadmium encountered an error while communicating with the server. Please try again or file an issue at https://github.com/latentspacelabs/cadmium-oss/issues'),
-          detail: i18n.__('This may be a temporary issue. If the problem persists, please contact our support team.'),
+          title: t('Server Error'),
+          message: t('Cadmium encountered an error while communicating with the server. Please try again or file an issue at https://github.com/latentspacelabs/cadmium-oss/issues'),
+          detail: t('This may be a temporary issue. If the problem persists, please contact our support team.'),
           buttons: buttons,
           defaultId: 0,
           type: 'error'
@@ -89,8 +89,8 @@ async function noInternetDialog() {
   const { default: connectivityChecker } = await import('./util/connectivity-checker.js');
   
   const hasUnsavedChanges = store.getters[UNSAVED_CHANGES];
-  const quitButtons = hasUnsavedChanges ? [i18n.__('Save and Quit'), i18n.__('Quit')] : [i18n.__('Quit')];
-  const retryButtons = hasUnsavedChanges ? [i18n.__('Retry'), i18n.__('Save and Quit'), i18n.__('Quit')] : [i18n.__('Retry'), i18n.__('Quit')];
+  const quitButtons = hasUnsavedChanges ? [t('Save and Quit'), t('Quit')] : [t('Quit')];
+  const retryButtons = hasUnsavedChanges ? [t('Retry'), t('Save and Quit'), t('Quit')] : [t('Retry'), t('Quit')];
   
   let dialogInstance = null;
   let dialogResolve = null;
@@ -99,9 +99,9 @@ async function noInternetDialog() {
     return new Promise((resolve) => {
       dialogResolve = resolve; // Store resolve function for auto-close
       showCustomDialog({
-        title: i18n.__('No Internet Connection'),
-        message: i18n.__('Cadmium requires an internet connection to function. Please check your internet connection and try again.'),
-        detail: i18n.__('For licensing reasons, Cadmium requires a live connection to the internet. Please reconnect to the internet and the dialog will close automatically, or click Retry to check manually.'),
+        title: t('No Internet Connection'),
+        message: t('Cadmium requires an internet connection to function. Please check your internet connection and try again.'),
+        detail: t('For licensing reasons, Cadmium requires a live connection to the internet. Please reconnect to the internet and the dialog will close automatically, or click Retry to check manually.'),
         buttons: retryButtons,
         defaultId: 0,
         type: 'warning',
@@ -196,13 +196,13 @@ async function noInternetDialog() {
 
 async function suspendedDialog() {
   const hasUnsavedChanges = store.getters[UNSAVED_CHANGES];
-  const buttons = hasUnsavedChanges ? [i18n.__('Save and Quit'), i18n.__('Quit')] : [i18n.__('Quit')];
+  const buttons = hasUnsavedChanges ? [t('Save and Quit'), t('Quit')] : [t('Quit')];
   const suspendedOptions = () => {
     return new Promise((resolve) => {
         showCustomDialog({
-          title: i18n.__('Suspended'),
-          message: i18n.__('Cadmium has been suspended. Please file an issue at https://github.com/latentspacelabs/cadmium-oss/issues'),
-          detail: i18n.__('Your account has been temporarily suspended. Please contact support to resolve this issue.'),
+          title: t('Suspended'),
+          message: t('Cadmium has been suspended. Please file an issue at https://github.com/latentspacelabs/cadmium-oss/issues'),
+          detail: t('Your account has been temporarily suspended. Please contact support to resolve this issue.'),
           buttons: buttons,
           defaultId: 0,
           type: 'error'
@@ -227,10 +227,10 @@ async function saveBeforeQuit() {
   const saveOptions = () => {
     return new Promise((resolve) => {
       showCustomDialog({
-        title: i18n.__('Save Before Quit'),
-        message: i18n.__('You have unsaved changes in your project. \n Would you like to save it before quitting?'),
-        detail: i18n.__('Your work will be lost if you don\'t save it.'),
-        buttons: [i18n.__('Yes'), i18n.__('No'), i18n.__('Cancel')],
+        title: t('Save Before Quit'),
+        message: t('You have unsaved changes in your project. \n Would you like to save it before quitting?'),
+        detail: t('Your work will be lost if you don\'t save it.'),
+        buttons: [t('Yes'), t('No'), t('Cancel')],
         defaultId: 0,
         cancelId: 2,
         type: 'warning'
@@ -263,10 +263,10 @@ async function saveBeforeUpdate() {
   const saveOptions = () => {
     return new Promise((resolve) => {
       showCustomDialog({
-        title: i18n.__('Save Before Quit'),
-        message: i18n.__('You have unsaved changes in your project. \n Would you like to save it before quitting?'),
-        detail: i18n.__('Your work will be lost if you don\'t save it.'),
-        buttons: [i18n.__('Yes'), i18n.__('No'), i18n.__('Cancel')],
+        title: t('Save Before Quit'),
+        message: t('You have unsaved changes in your project. \n Would you like to save it before quitting?'),
+        detail: t('Your work will be lost if you don\'t save it.'),
+        buttons: [t('Yes'), t('No'), t('Cancel')],
         defaultId: 0,
         cancelId: 2,
         type: 'warning'

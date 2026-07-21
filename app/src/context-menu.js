@@ -3,8 +3,8 @@ import { logError } from '@/util/error-util';
 
 import { TOGGLE_FRAME_ORIGINALITY } from '@/store/action-types';
 
-import { i18n } from './util/i18nVue';
 import { createMenu, createMenuItem } from '@/platform';
+import { t } from './util/i18n';
 
 let context = {
   name: null, // the clicked element, e.g. 'frame'
@@ -17,7 +17,7 @@ const contextMenuItemIds = {
 export const frameContextMenu = createMenu();
 
 frameContextMenu.append(createMenuItem({
-  label: i18n.__('Reference Frame'),
+  label: t('Reference Frame'),
   id: contextMenuItemIds.CONVERT_TO_REFERENCE_FRAME,
   enabled: true,
   visible: true,

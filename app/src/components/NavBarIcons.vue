@@ -41,7 +41,7 @@
 </template> <!-- eslint-disable linebreak-style -->
 <script> /* eslint-disable linebreak-style */
 import { mapGetters, mapMutations } from 'vuex';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import SidebarItem from '@/components/SidebarItem.vue';
 
 import {
@@ -103,8 +103,8 @@ export default {
     };
   },
   computed: {
-    segTippy() { return i18n.__('Analyze settings. In here you can adjust how Cadmium detects gaps and color areas.'); },
-    refPanelTippy() { return i18n.__('Reference Panel. Import reference images to pick colors from.'); },
+    segTippy() { return t('Analyze settings. In here you can adjust how Cadmium detects gaps and color areas.'); },
+    refPanelTippy() { return t('Reference Panel. Import reference images to pick colors from.'); },
     ...mapGetters({
       updateInProgress: UPDATE_IN_PROGRESS,
       updatePercentage: UPDATE_PERCENTAGE,

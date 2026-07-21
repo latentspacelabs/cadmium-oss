@@ -232,7 +232,7 @@
 import { mapGetters, mapMutations, mapActions } from 'vuex';
 import draggable from 'vuedraggable';
 import { swatchMenu, setSwatchMenuContext } from '@/swatch-menu';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import showCustomDialog from '@/util/customDialog';
 
 import {
@@ -288,15 +288,15 @@ export default {
     };
   },
   computed: {
-    colorSectionTitle() { return i18n.__('COLOR'); },
-    paletteTitle() { return i18n.__('PALETTE'); },
-    hexColorTooltip() { return i18n.__('Please enter a valid hex color code in the format: #123456'); },
-    deleteTippy() { return i18n.__('Deletes the selected swatch from the color palette, and removes the color from all frames.'); },
-    toggleActiveColorTippy() { return i18n.__('Toggle active color (x)'); },
-    addSwatchTippy() { return i18n.__('Adds the currently active color to the color palette.'); },
-    changeColorTippy() { return i18n.__('First select the swatch or swatches to change, select or eyedrop a new color, then click here to update the color throughout your entire sequence.'); },
-    simplifyPaletteTippy() { return i18n.__('This button will merge any colors that are very similar to eachother.'); },
-    colorTitle() { return i18n.__('COLOR'); },
+    colorSectionTitle() { return t('COLOR'); },
+    paletteTitle() { return t('PALETTE'); },
+    hexColorTooltip() { return t('Please enter a valid hex color code in the format: #123456'); },
+    deleteTippy() { return t('Deletes the selected swatch from the color palette, and removes the color from all frames.'); },
+    toggleActiveColorTippy() { return t('Toggle active color (x)'); },
+    addSwatchTippy() { return t('Adds the currently active color to the color palette.'); },
+    changeColorTippy() { return t('First select the swatch or swatches to change, select or eyedrop a new color, then click here to update the color throughout your entire sequence.'); },
+    simplifyPaletteTippy() { return t('This button will merge any colors that are very similar to eachother.'); },
+    colorTitle() { return t('COLOR'); },
     ...mapGetters({
       selectedColorInStore: SELECTED_COLOR,
       timelineHasFrames: TIMELINE_HAS_FRAMES,
@@ -454,9 +454,9 @@ export default {
         }
       } else {
         showCustomDialog({
-          title: i18n.__('Invalid Hex Code'),
-          message: i18n.__('Oops, looks like that is not a valid hex code.'),
-          buttons: [i18n.__('OK')],
+          title: t('Invalid Hex Code'),
+          message: t('Oops, looks like that is not a valid hex code.'),
+          buttons: [t('OK')],
           defaultId: 0,
           type: 'warning',
         });

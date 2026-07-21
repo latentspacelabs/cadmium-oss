@@ -4,7 +4,7 @@ import { encode } from 'url-safe-base64';
 import { AbortController } from "node-abort-controller";
 import { Agent } from 'https';
 
-import { i18n } from './i18nVue';
+import { t } from './i18n';
 import ISRGCAs from '@/util/rootCert';
 import showCustomDialog from '@/util/customDialog';
 import { logError } from '@/util/error-util';
@@ -26,7 +26,7 @@ export const MODAL_RESPONSES = {
 };
 
 async function showErrorOnce(action, errorMessage) {
-  const detail = i18n.__('Please try again or file an issue at https://github.com/latentspacelabs/cadmium-oss/issues');
+  const detail = t('Please try again or file an issue at https://github.com/latentspacelabs/cadmium-oss/issues');
 
   // errorMessage can be one of:
   //  - Insufficient credits. Please upgrade your license.
@@ -34,9 +34,9 @@ async function showErrorOnce(action, errorMessage) {
 
   await showCustomDialog({
     title: errorMessage,
-    message: i18n.__('Error occured while %s', i18n.__(action)),
+    message: t('Error occured while {{action}}', { action: t(action) }),
     detail: detail,
-    buttons: [i18n.__('OK')],
+    buttons: [t('OK')],
     defaultId: 0,
     cancelId: 0,
     type: 'error'
@@ -44,15 +44,15 @@ async function showErrorOnce(action, errorMessage) {
 }
 
 async function showNoInternetError(action) {
-  const title = i18n.__('No Internet Connection');
-  const message = i18n.__('Unable to %s without an internet connection', i18n.__(action));
-  const detail = i18n.__('Please check your network connection and try again.');
+  const title = t('No Internet Connection');
+  const message = t('Unable to {{action}} without an internet connection', { action: t(action) });
+  const detail = t('Please check your network connection and try again.');
 
   await showCustomDialog({
     title: title,
     message: message,
     detail: detail,
-    buttons: [i18n.__('OK')],
+    buttons: [t('OK')],
     defaultId: 0,
     cancelId: 0,
     type: 'error'
@@ -64,14 +64,14 @@ async function showEmbeddedFailedError(action) {
   // renderer cache): missing binary/models, crash loop, health timeout, …
   const status = getLastSidecarStatus();
   const reason = (status && status.lastError)
-    || i18n.__('The local processing engine is not responding.');
-  const hint = i18n.__('Open the server settings to see details, retry, or switch to a hosted server.');
+    || t('The local processing engine is not responding.');
+  const hint = t('Open the server settings to see details, retry, or switch to a hosted server.');
 
   await showCustomDialog({
-    title: i18n.__('Local Processing Unavailable'),
-    message: i18n.__('Unable to %s — the embedded backend is not running', i18n.__(action)),
+    title: t('Local Processing Unavailable'),
+    message: t('Unable to {{action}} — the embedded backend is not running', { action: t(action) }),
     detail: `${reason}\n\n${hint}`,
-    buttons: [i18n.__('OK')],
+    buttons: [t('OK')],
     defaultId: 0,
     cancelId: 0,
     type: 'error'

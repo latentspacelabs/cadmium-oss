@@ -59,7 +59,7 @@
 <!-- eslint-disable linebreak-style -->
 <script> /* eslint-disable linebreak-style */
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import { mapGetters, mapMutations } from 'vuex';
 
@@ -111,9 +111,9 @@ export default {
     };
   },
   computed: {
-    EraserLabel() { return i18n.__('ERASER'); },
-    SizeLabel() { return i18n.__('Size'); },
-    PressureLabel() { return i18n.__('Pressure'); },
+    EraserLabel() { return t('ERASER'); },
+    SizeLabel() { return t('Size'); },
+    PressureLabel() { return t('Pressure'); },
     ...mapGetters({
       eraserToolDiameter: ERASER_TOOL_DIAMETER,
       usePressure: IS_PRESSURE_ENABLED,

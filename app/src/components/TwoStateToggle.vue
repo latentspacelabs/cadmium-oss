@@ -19,7 +19,7 @@
 
 <script>
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 export default {
   props: {
@@ -45,8 +45,8 @@ export default {
     },
   },
   computed: {
-    toggleOneText() { return i18n.__(this.optionOneLabel); },
-    toggleTwoText() { return i18n.__(this.optionTwoLabel); },
+    toggleOneText() { return t(this.optionOneLabel); },
+    toggleTwoText() { return t(this.optionTwoLabel); },
     optionOneSelected() {
       return this.selectedOptionId === this.optionOneId;
     },

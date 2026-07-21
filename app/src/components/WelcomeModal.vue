@@ -2,8 +2,8 @@
   <div class="welcome-modal-overlay" v-if="isVisible" @click="closeModal">
     <div class="welcome-modal" @click.stop>
       <div class="welcome-modal__header">
-        <h2>{{ i18n.__('Welcome to Cadmium!') }}</h2>
-        <p>{{ i18n.__('Thanks for joining us! How would you like to get started?') }}</p>
+        <h2>{{ t('Welcome to Cadmium!') }}</h2>
+        <p>{{ t('Thanks for joining us! How would you like to get started?') }}</p>
       </div>
 
       <div class="welcome-modal__content">
@@ -12,9 +12,9 @@
             <i class="icon-tour"></i>
           </div>
           <div class="welcome-option__content">
-            <h3>{{ i18n.__('Take the Tour') }}</h3>
+            <h3>{{ t('Take the Tour') }}</h3>
             <p>{{
-              i18n.__(
+              t(
                 'Get a guided walkthrough of Cadmium\'s features and learn how to animate with AI.'
               )
             }}</p>
@@ -26,8 +26,8 @@
             <i class="icon-documentation"></i>
           </div>
           <div class="welcome-option__content">
-            <h3>{{ i18n.__('View Documentation') }}</h3>
-            <p>{{ i18n.__('Browse our documentation at your own pace.') }}</p>
+            <h3>{{ t('View Documentation') }}</h3>
+            <p>{{ t('Browse our documentation at your own pace.') }}</p>
           </div>
         </div>
 
@@ -36,9 +36,9 @@
             <i class="icon-sample"></i>
           </div>
           <div class="welcome-option__content">
-            <h3>{{ i18n.__('Load Sample Project') }}</h3>
+            <h3>{{ t('Load Sample Project') }}</h3>
             <p>{{
-              i18n.__('Start with a sample animation project to explore Cadmium\'s capabilities.')
+              t('Start with a sample animation project to explore Cadmium\'s capabilities.')
             }}</p>
           </div>
         </div>
@@ -46,7 +46,7 @@
 
       <div class="welcome-modal__footer">
         <button class="welcome-modal__skip" @click="skipWelcome">
-          {{ i18n.__('Skip and start with empty project') }}
+          {{ t('Skip and start with empty project') }}
         </button>
       </div>
     </div>
@@ -55,7 +55,7 @@
 
 <script>
 import { mapActions } from 'vuex';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import {
   ADD_IMAGES_TO_TIMELINE,
   STORE_IMAGE_IN_IMAGE_STORE,
@@ -79,7 +79,7 @@ export default {
   },
   data() {
     return {
-      i18n,
+      t,
     };
   },
   methods: {

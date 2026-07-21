@@ -81,7 +81,7 @@
 <script> /* eslint-disable linebreak-style */
 import { mapGetters, mapMutations } from 'vuex';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import {
   LAYER_IS_VISIBLE,
@@ -129,11 +129,11 @@ export default {
   },
   computed: {
     layerTitle() {
-      return i18n.__(this.title);
+      return t(this.title);
     },
-    layerTippy() { return i18n.__("You can click on the layer name or press 'Shift + up/down' to change the active layer."); },
-    layerVisibilityTippy() { return i18n.__('Show/Hide Layer'); },
-    refControlTippy() { return i18n.__('Reference Frame Toggle: use this to set reference color frames that Cadmium will use to color the rest of your frames.'); },
+    layerTippy() { return t("You can click on the layer name or press 'Shift + up/down' to change the active layer."); },
+    layerVisibilityTippy() { return t('Show/Hide Layer'); },
+    refControlTippy() { return t('Reference Frame Toggle: use this to set reference color frames that Cadmium will use to color the rest of your frames.'); },
     ...mapGetters({
       layerIsVisibleByLayerId: LAYER_IS_VISIBLE,
       activeLayerId: ACTIVE_LAYER_ID,
@@ -171,7 +171,7 @@ export default {
       this.setActiveLayerId(this.layerId);
     },
     showRefControl(title) {
-      if (title === 'Outlines' || title === i18n.__('Outlines')) {
+      if (title === 'Outlines' || title === t('Outlines')) {
         return 'hide-ref-control';
       } return 'show-ref-control';
     },

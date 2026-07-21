@@ -2,25 +2,27 @@
   <div class="server-modal-overlay" v-if="isVisible" @click="onOverlayClick">
     <div class="server-modal" @click.stop>
       <div class="server-modal__header">
-        <h2>{{ firstRun ? i18n.__('Connect to your Cadmium server') : i18n.__('Server Settings') }}</h2>
+        <h2>{{ firstRun ? t('Connect to your Cadmium server') : t('Server Settings') }}</h2>
+        <!-- eslint-disable max-len — the natural-sentence i18n keys cannot be wrapped -->
         <p>{{
           firstRun
-            ? i18n.__('Cadmium needs a colorization server to run. Enter the URL of your server to get started.')
-            : i18n.__('Colorize, analyze, and preprocess requests are sent to this backend.')
+            ? t('Cadmium needs a colorization server to run. Enter the URL of your server to get started.')
+            : t('Colorize, analyze, and preprocess requests are sent to this backend.')
         }}</p>
+        <!-- eslint-enable max-len -->
       </div>
 
       <div class="server-modal__content">
-        <label class="server-modal__label">{{ i18n.__('Backend') }}</label>
+        <label class="server-modal__label">{{ t('Backend') }}</label>
         <div class="server-modal__backends">
           <label
             class="server-modal__backend"
             :class="{ 'server-modal__backend--selected': kind === BACKEND_HOSTED }"
           >
             <input type="radio" :value="BACKEND_HOSTED" v-model="kind" />
-            <span class="server-modal__backend-name">{{ i18n.__('Hosted server') }}</span>
+            <span class="server-modal__backend-name">{{ t('Hosted server') }}</span>
             <span class="server-modal__backend-desc">
-              {{ i18n.__('A server you run or can reach') }}
+              {{ t('A server you run or can reach') }}
             </span>
           </label>
           <label
@@ -28,15 +30,15 @@
             :class="{ 'server-modal__backend--selected': kind === BACKEND_EMBEDDED }"
           >
             <input type="radio" :value="BACKEND_EMBEDDED" v-model="kind" />
-            <span class="server-modal__backend-name">{{ i18n.__('Embedded (this computer)') }}</span>
+            <span class="server-modal__backend-name">{{ t('Embedded (this computer)') }}</span>
             <span class="server-modal__backend-desc">
-              {{ i18n.__('A local process the app manages') }}
+              {{ t('A local process the app manages') }}
             </span>
           </label>
         </div>
 
         <template v-if="kind === BACKEND_EMBEDDED">
-          <label class="server-modal__label">{{ i18n.__('Status') }}</label>
+          <label class="server-modal__label">{{ t('Status') }}</label>
           <div class="server-modal__embedded">
             <div class="server-modal__embedded-row">
               <span class="server-modal__dot" :class="embeddedDotClass"></span>
@@ -48,7 +50,8 @@
               {{ embeddedMissingText }}
             </p>
             <p v-else class="server-modal__hint">
-              {{ i18n.__('Colorization runs on this computer. The app starts and stops the process for you.') }}
+              <!-- eslint-disable-next-line max-len -->
+              {{ t('Colorization runs on this computer. The app starts and stops the process for you.') }}
             </p>
 
             <template v-if="downloadActive">
@@ -64,13 +67,13 @@
                   class="server-modal__btn server-modal__btn--secondary"
                   @click="cancelDownload"
                 >
-                  {{ i18n.__('Cancel download') }}
+                  {{ t('Cancel download') }}
                 </button>
               </div>
             </template>
             <template v-else-if="missingModels.length">
               <p v-if="downloadError" class="server-modal__hint server-modal__hint--warn">
-                {{ i18n.__('Download failed: %s', downloadError) }}
+                {{ downloadErrorText }}
               </p>
               <button
                 class="server-modal__btn server-modal__btn--secondary"
@@ -84,7 +87,7 @@
 
         <template v-if="kind === BACKEND_HOSTED">
           <label class="server-modal__label" for="server-url-input">
-            {{ i18n.__('Server URL') }}
+            {{ t('Server URL') }}
           </label>
           <input
             id="server-url-input"
@@ -99,10 +102,10 @@
             @input="resetTest"
           />
           <p v-if="url && !isValid" class="server-modal__hint server-modal__hint--warn">
-            {{ i18n.__('Enter a full URL starting with http:// or https://') }}
+            {{ t('Enter a full URL starting with http:// or https://') }}
           </p>
           <p v-else class="server-modal__hint">
-            {{ i18n.__('The app appends /colorize, /segment and /preprocess to this URL.') }}
+            {{ t('The app appends /colorize, /segment and /preprocess to this URL.') }}
           </p>
         </template>
 
@@ -112,7 +115,7 @@
             :disabled="!isValid || testing"
             @click="testConnection"
           >
-            {{ testing ? i18n.__('Testing…') : i18n.__('Test connection') }}
+            {{ testing ? t('Testing…') : t('Test connection') }}
           </button>
           <span
             class="server-modal__dot"
@@ -136,14 +139,14 @@
           class="server-modal__btn server-modal__btn--ghost"
           @click="close"
         >
-          {{ firstRun ? i18n.__('Skip for now') : i18n.__('Cancel') }}
+          {{ firstRun ? t('Skip for now') : t('Cancel') }}
         </button>
         <button
           class="server-modal__btn server-modal__btn--primary"
           :disabled="!isValid"
           @click="save"
         >
-          {{ i18n.__('Save') }}
+          {{ t('Save') }}
         </button>
       </div>
     </div>
@@ -152,7 +155,7 @@
 
 <script>
 import axios from 'axios';
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import {
   normalizeServerUrl,
   coerceServerBackend,
@@ -184,7 +187,7 @@ export default {
   data() {
     const backend = coerceServerBackend(this.initialBackend);
     return {
-      i18n,
+      t,
       BACKEND_HOSTED,
       BACKEND_EMBEDDED,
       kind: backend ? backend.kind : BACKEND_HOSTED,
@@ -227,12 +230,16 @@ export default {
     embeddedStatusText() {
       const s = this.sidecarStatus;
       if (!s || s.state === 'stopped') {
-        return i18n.__('Not running — starts when first needed.');
+        return t('Not running — starts when first needed.');
       }
-      if (s.state === 'starting') return i18n.__('Starting…');
-      if (s.state === 'ready') return i18n.__('Running on %s', `127.0.0.1:${s.port}`);
+      if (s.state === 'starting') return t('Starting…');
+      if (s.state === 'ready') return t('Running on {{address}}', { address: `127.0.0.1:${s.port}` });
       if (s.state === 'failed') {
-        return i18n.__('Failed: %s', s.lastError || i18n.__('unknown error'));
+        // Hoisted out of the t() options: i18next-parser doesn't descend
+        // into a matched call's arguments, so a nested t('unknown error')
+        // would never reach the catalogs.
+        const reason = s.lastError || t('unknown error');
+        return t('Failed: {{error}}', { error: reason });
       }
       return '';
     },
@@ -240,7 +247,7 @@ export default {
       const s = this.sidecarStatus;
       if (!s || !s.missing || !s.missing.length) return '';
       const files = s.missing.map((m) => m.file).join(', ');
-      return i18n.__('Missing: %s — place the files in %s', files, s.modelsDir);
+      return t('Missing: {{files}} — place the files in {{dir}}', { files, dir: s.modelsDir });
     },
     missingModels() {
       const s = this.sidecarStatus;
@@ -254,6 +261,13 @@ export default {
       const p = this.downloadProgress;
       return p && p.state === 'failed' ? p.error : '';
     },
+    downloadErrorText() {
+      // Kept out of the template: a literal {{error}} inside a mustache
+      // would end Vue's text interpolation early.
+      return this.downloadError
+        ? t('Download failed: {{error}}', { error: this.downloadError })
+        : '';
+    },
     downloadPercent() {
       const p = this.downloadProgress;
       if (!p || !p.totalBytes) return 0;
@@ -261,20 +275,22 @@ export default {
     },
     downloadButtonLabel() {
       return this.downloadPlanBytes
-        ? i18n.__('Download models (%s)', formatGB(this.downloadPlanBytes))
-        : i18n.__('Download models');
+        ? t('Download models ({{size}})', { size: formatGB(this.downloadPlanBytes) })
+        : t('Download models');
     },
     downloadProgressText() {
       const p = this.downloadProgress;
       if (!p) return '';
-      if (p.state === 'verifying') return i18n.__('Verifying %s…', p.file);
-      return i18n.__(
-        '%s (%s of %s) — %s of %s',
-        p.file,
-        String(p.fileIndex + 1),
-        String(p.fileCount),
-        formatGB(p.receivedBytes),
-        formatGB(p.totalBytes),
+      if (p.state === 'verifying') return t('Verifying {{file}}…', { file: p.file });
+      return t(
+        '{{file}} ({{index}} of {{count}}) — {{received}} of {{total}}',
+        {
+          file: p.file,
+          index: String(p.fileIndex + 1),
+          count: String(p.fileCount),
+          received: formatGB(p.receivedBytes),
+          total: formatGB(p.totalBytes),
+        },
       );
     },
   },
@@ -369,13 +385,13 @@ export default {
         const gapCloser = res && res.data && res.data.gap_closer;
         this.testState = 'ok';
         this.testMessage = gapCloser
-          ? i18n.__('Connected — server ready (gap closer enabled).')
-          : i18n.__('Connected — server ready.');
+          ? t('Connected — server ready (gap closer enabled).')
+          : t('Connected — server ready.');
       } catch (e) {
         this.testState = 'fail';
         this.testMessage = this.kind === BACKEND_EMBEDDED
-          ? i18n.__('Embedded backend is not available — see the status above.')
-          : i18n.__('Could not reach server. Check the URL and that the server is running.');
+          ? t('Embedded backend is not available — see the status above.')
+          : t('Could not reach server. Check the URL and that the server is running.');
       } finally {
         this.testing = false;
       }

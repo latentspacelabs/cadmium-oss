@@ -256,7 +256,7 @@ import Sidebar from '@/components/Sidebar.vue';
 import ToolControls from '@/components/ToolControls.vue';
 import WelcomeModal from '@/components/WelcomeModal.vue';
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 import showCustomDialog from '@/util/customDialog';
 import triggerMenuRebuildWithColorizationState from '@/util/menu';
 import { preloadImages } from '@/util/frame-preload';
@@ -288,10 +288,10 @@ export default {
       tourOptions: {
         useKeyboardNavigation: false,
         labels: {
-          buttonSkip: i18n.__('Skip tour'),
-          buttonPrevious: i18n.__('Previous'),
-          buttonNext: i18n.__('Next'),
-          buttonStop: i18n.__('Finish'),
+          buttonSkip: t('Skip tour'),
+          buttonPrevious: t('Previous'),
+          buttonNext: t('Next'),
+          buttonStop: t('Finish'),
         },
       },
       tourCallbacks: {
@@ -527,46 +527,46 @@ export default {
     };
   },
   async created() {
-    this.steps[0].content = i18n.__('<strong>Welcome To Cadmium!</strong><br/><br/>Start by dragging your .png line frames into this area.'
+    this.steps[0].content = t('<strong>Welcome To Cadmium!</strong><br/><br/>Start by dragging your .png line frames into this area.'
       + ' You can drag entire folders too :) Do not forget to have an alpha channel on your images!');
-    this.steps[1].content = i18n.__('Cool. Nice. You might notice that Cadmium recognizes duplicate frames. Neat, right?');
-    this.steps[2].content = i18n.__('Now that you have some frames, try playing what you imported. Everything look ok?');
-    this.steps[3].content = i18n.__('Now, we need to give Cadmium an example of how to color your animation.'
+    this.steps[1].content = t('Cool. Nice. You might notice that Cadmium recognizes duplicate frames. Neat, right?');
+    this.steps[2].content = t('Now that you have some frames, try playing what you imported. Everything look ok?');
+    this.steps[3].content = t('Now, we need to give Cadmium an example of how to color your animation.'
       + ' There are two ways to do that...');
-    this.steps[4].content = i18n.__('The first way is to drag a colored image onto the color layer '
+    this.steps[4].content = t('The first way is to drag a colored image onto the color layer '
       + '(make sure it does not include the line for best results.)');
-    this.steps[5].content = i18n.__('You can also color with the fill tool, over here.');
-    this.steps[6].content = i18n.__('Open up this circular buddy and choose your colors. You can change the background color here as well.');
-    this.steps[7].content = i18n.__('Now you are ready to fill! Click areas of your line drawing to apply the color. '
+    this.steps[5].content = t('You can also color with the fill tool, over here.');
+    this.steps[6].content = t('Open up this circular buddy and choose your colors. You can change the background color here as well.');
+    this.steps[7].content = t('Now you are ready to fill! Click areas of your line drawing to apply the color. '
       + 'The fill tool will always apply color to the color layer.');
-    this.steps[8].content = i18n.__("If some gaps aren't closing, you can close them manually with this pen, pal.");
-    this.steps[9].content = i18n.__('If you have been following along, you now have a "reference frame,"'
+    this.steps[8].content = t("If some gaps aren't closing, you can close them manually with this pen, pal.");
+    this.steps[9].content = t('If you have been following along, you now have a "reference frame,"'
       + ' which is signified by a dot on the frame. clicking this diamond will toggle any selected frames to be a reference frame.'
       + ' Right clicking on that frame also allows you to toggle this state.');
-    this.steps[10].content = i18n.__('After having added your reference frames, select the empty frames you would like Cadmium to color, and then hit this button.');
-    this.steps[11].content = i18n.__('So neat, Cadmium hopefully did some coloring for you. There might be a few mistakes, '
+    this.steps[10].content = t('After having added your reference frames, select the empty frames you would like Cadmium to color, and then hit this button.');
+    this.steps[11].content = t('So neat, Cadmium hopefully did some coloring for you. There might be a few mistakes, '
       + 'but you can try correcting stuff and reprocessing with more reference frames.');
-    this.steps[12].content = i18n.__('The closest reference frame will always be used to color your empty frame. '
+    this.steps[12].content = t('The closest reference frame will always be used to color your empty frame. '
       + 'You can make any colored frame a reference frame by right clicking it.');
-    this.steps[13].content = i18n.__('When you are ready to export your frames, make visible the layers you would like to see, '
+    this.steps[13].content = t('When you are ready to export your frames, make visible the layers you would like to see, '
       + 'and hit export.');
-    this.steps[14].content = i18n.__("Those are the basics! If you are curious, here's a few more useful tips that you might find helpful:...");
-    this.steps[15].content = i18n.__('To change which layer to use the pen tool on, click the layer names, or press shift + up/down');
-    this.steps[16].content = i18n.__('The analyze button will return a randomly colored image map of your art that shows '
+    this.steps[14].content = t("Those are the basics! If you are curious, here's a few more useful tips that you might find helpful:...");
+    this.steps[15].content = t('To change which layer to use the pen tool on, click the layer names, or press shift + up/down');
+    this.steps[16].content = t('The analyze button will return a randomly colored image map of your art that shows '
       + ' you the different regions of your drawing.');
-    this.steps[17].content = i18n.__('Inside the color panel is your color palette, which displays every color that you have used. '
+    this.steps[17].content = t('Inside the color panel is your color palette, which displays every color that you have used. '
       + 'Clicking on these color swatches selects that color. You can drag to reorder them, or add a new swatch here as well.');
-    this.steps[18].content = i18n.__('You can globally change colors in your scene by selecting one or multiple color swatches, '
+    this.steps[18].content = t('You can globally change colors in your scene by selecting one or multiple color swatches, '
       + 'setting the color you want to change it to as your active color, and then pressing the Change Colors button.');
-    this.steps[19].content = i18n.__('If you do not know what something does, hovering over most any button will display some info. '
+    this.steps[19].content = t('If you do not know what something does, hovering over most any button will display some info. '
       + 'You can also click the question mark for some more in depth information and links to tutorials.');
-    this.steps[20].content = i18n.__('Up here are the preference panes, from left to right they are analyze settings, '
+    this.steps[20].content = t('Up here are the preference panes, from left to right they are analyze settings, '
       + 'line colorization settings, and the reference panel.');
-    this.steps[21].content = i18n.__('Analyze settings allows you to control how cadmium analyzes your line work.');
-    this.steps[22].content = i18n.__('Line colorization settings control the auto line colorization feature. '
+    this.steps[21].content = t('Analyze settings allows you to control how cadmium analyzes your line work.');
+    this.steps[22].content = t('Line colorization settings control the auto line colorization feature. '
       + 'Heads up this is an experimental feature, but it might be quite helpful!.');
-    this.steps[23].content = i18n.__('You can also toggle line colorization by clicking the spark icon on the outline layer.');
-    this.steps[24].content = i18n.__('The reference panel allows you to load in several reference frames for quick color picking'
+    this.steps[23].content = t('You can also toggle line colorization by clicking the spark icon on the outline layer.');
+    this.steps[24].content = t('The reference panel allows you to load in several reference frames for quick color picking'
       + ' and reference.');
   },
   computed: {
@@ -1875,9 +1875,9 @@ export default {
     lastImageSizeDifferentThanCanvas(b) {
       if (b) {
         showCustomDialog({
-          title: i18n.__('Image Size Mismatch'),
-          message: i18n.__('Sorry, you cannot import images of different sizes.'),
-          buttons: [i18n.__('OK')],
+          title: t('Image Size Mismatch'),
+          message: t('Sorry, you cannot import images of different sizes.'),
+          buttons: [t('OK')],
           defaultId: 0,
           cancelId: 0,
           type: 'warning',

@@ -17,7 +17,7 @@
 <script> /* eslint-disable linebreak-style */
 /* eslint-disable import/no-extraneous-dependencies */
 
-import { i18n } from '@/util/i18nVue';
+import { t } from '@/util/i18n';
 
 import { mapGetters } from 'vuex';
 import { getAppVersion } from '@/platform';
@@ -37,8 +37,8 @@ export default {
     };
   },
   computed: {
-    cadmiumTitle() { return i18n.__('cadmium'); },
-    betaText() { return i18n.__('beta'); },
+    cadmiumTitle() { return t('cadmium'); },
+    betaText() { return t('beta'); },
     ...mapGetters({
       currentFile: CURRENT_FILE,
       unsavedChanges: UNSAVED_CHANGES,
