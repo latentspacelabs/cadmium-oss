@@ -130,6 +130,12 @@ jobs:
     name: package windows (x64)
     needs: [sidecar-test, app-test]
     runs-on: windows-2022
+    # Exposed at job level so the eSigner step's `if` can test env.ES_USERNAME
+    # — the `secrets` context is not available in `if` conditions.
+    env:
+      ES_USERNAME: ${{ secrets.ES_USERNAME }}
+      ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+      ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,12 +165,8 @@ jobs:
       # then read its thumbprint). Skipped when the secrets are absent —
       # the package step then produces an unsigned installer.
       - name: Load SSL.com eSigner cert
-        if: ${{ secrets.ES_USERNAME != '' }}
+        if: ${{ env.ES_USERNAME != '' }}
         shell: powershell
-        env:
-          ES_USERNAME: ${{ secrets.ES_USERNAME }}
-          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
-          ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
         run: |
           Invoke-WebRequest -OutFile eSigner_CKA_Setup.exe "https://www.ssl.com/download/ssl-com-esigner-cka/"
           New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
