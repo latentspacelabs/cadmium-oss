@@ -50,6 +50,35 @@
             <p v-else class="server-modal__hint">
               {{ i18n.__('Colorization runs on this computer. The app starts and stops the process for you.') }}
             </p>
+
+            <template v-if="downloadActive">
+              <div class="server-modal__progress">
+                <div
+                  class="server-modal__progress-fill"
+                  :style="{ width: `${downloadPercent}%` }"
+                ></div>
+              </div>
+              <div class="server-modal__embedded-row">
+                <span class="server-modal__hint">{{ downloadProgressText }}</span>
+                <button
+                  class="server-modal__btn server-modal__btn--secondary"
+                  @click="cancelDownload"
+                >
+                  {{ i18n.__('Cancel download') }}
+                </button>
+              </div>
+            </template>
+            <template v-else-if="missingModels.length">
+              <p v-if="downloadError" class="server-modal__hint server-modal__hint--warn">
+                {{ i18n.__('Download failed: %s', downloadError) }}
+              </p>
+              <button
+                class="server-modal__btn server-modal__btn--secondary"
+                @click="startDownload"
+              >
+                {{ downloadButtonLabel }}
+              </button>
+            </template>
           </div>
         </template>
 
@@ -134,10 +163,15 @@ import {
 } from '@/util/server-config';
 import {
   setPref, ensureSidecar, getSidecarStatus, stopSidecar,
+  getModelDownloadPlan, downloadModels, cancelModelDownload, getModelDownloadProgress,
 } from '@/platform';
 import {
   updateSidecarStatus, getLastSidecarStatus, onSidecarStatus,
 } from '@/util/sidecar-status';
+import {
+  getLastModelDownloadProgress, onModelDownloadProgress,
+} from '@/util/model-download-status';
+import { formatGB } from '@/util/model-download-core';
 
 export default {
   name: 'ServerSettingsModal',
@@ -160,6 +194,10 @@ export default {
       testMessage: '',
       // Live embedded-sidecar status pushed by the main-process supervisor.
       sidecarStatus: getLastSidecarStatus(),
+      // Live model-download progress (same push pattern).
+      downloadProgress: getLastModelDownloadProgress(),
+      // Bytes a download would fetch right now (null until probed).
+      downloadPlanBytes: null,
     };
   },
   computed: {
@@ -204,6 +242,41 @@ export default {
       const files = s.missing.map((m) => m.file).join(', ');
       return i18n.__('Missing: %s — place the files in %s', files, s.modelsDir);
     },
+    missingModels() {
+      const s = this.sidecarStatus;
+      return ((s && s.missing) || []).filter((m) => m.kind === 'model');
+    },
+    downloadActive() {
+      const state = this.downloadProgress && this.downloadProgress.state;
+      return state === 'downloading' || state === 'verifying';
+    },
+    downloadError() {
+      const p = this.downloadProgress;
+      return p && p.state === 'failed' ? p.error : '';
+    },
+    downloadPercent() {
+      const p = this.downloadProgress;
+      if (!p || !p.totalBytes) return 0;
+      return Math.min(100, Math.floor((p.receivedBytes / p.totalBytes) * 100));
+    },
+    downloadButtonLabel() {
+      return this.downloadPlanBytes
+        ? i18n.__('Download models (%s)', formatGB(this.downloadPlanBytes))
+        : i18n.__('Download models');
+    },
+    downloadProgressText() {
+      const p = this.downloadProgress;
+      if (!p) return '';
+      if (p.state === 'verifying') return i18n.__('Verifying %s…', p.file);
+      return i18n.__(
+        '%s (%s of %s) — %s of %s',
+        p.file,
+        String(p.fileIndex + 1),
+        String(p.fileCount),
+        formatGB(p.receivedBytes),
+        formatGB(p.totalBytes),
+      );
+    },
   },
   watch: {
     isVisible(visible) {
@@ -214,6 +287,7 @@ export default {
         this.url = (backend && backend.baseUrl) || DEFAULT_SERVER_URL;
         this.resetTest();
         this.refreshSidecarStatus();
+        this.refreshDownloadPlan();
         this.$nextTick(() => {
           if (this.$refs.urlInput) this.$refs.urlInput.focus();
         });
@@ -223,7 +297,10 @@ export default {
       this.resetTest();
       // Show current (and missing-file) info as soon as embedded is picked.
       // A status snapshot never spawns the sidecar.
-      if (value === BACKEND_EMBEDDED) this.refreshSidecarStatus();
+      if (value === BACKEND_EMBEDDED) {
+        this.refreshSidecarStatus();
+        this.refreshDownloadPlan();
+      }
     },
   },
   mounted() {
@@ -231,9 +308,18 @@ export default {
     this.unsubscribeSidecar = onSidecarStatus((status) => {
       this.sidecarStatus = status;
     });
+    this.unsubscribeDownload = onModelDownloadProgress((progress) => {
+      this.downloadProgress = progress;
+      // A finished run changes what's missing and what a retry would fetch.
+      if (progress.state === 'done' || progress.state === 'failed' || progress.state === 'cancelled') {
+        this.refreshSidecarStatus();
+        this.refreshDownloadPlan();
+      }
+    });
   },
   beforeDestroy() {
     if (this.unsubscribeSidecar) this.unsubscribeSidecar();
+    if (this.unsubscribeDownload) this.unsubscribeDownload();
   },
   methods: {
     resetTest() {
@@ -244,6 +330,24 @@ export default {
       getSidecarStatus()
         .then((status) => updateSidecarStatus(status))
         .catch(() => {});
+    },
+    refreshDownloadPlan() {
+      getModelDownloadPlan()
+        .then((plan) => { this.downloadPlanBytes = plan ? plan.totalBytes : null; })
+        .catch(() => { this.downloadPlanBytes = null; });
+      // Re-seed live progress too: after a renderer reload the push cache
+      // starts idle even if the main process is mid-download.
+      getModelDownloadProgress()
+        .then((progress) => { if (progress) this.downloadProgress = progress; })
+        .catch(() => {});
+    },
+    startDownload() {
+      // Fire-and-forget: progress and the terminal state arrive as pushes;
+      // the main process re-ensures the sidecar itself after a success.
+      downloadModels().catch(() => {});
+    },
+    cancelDownload() {
+      cancelModelDownload().catch(() => {});
     },
     async testConnection() {
       if (!this.isValid || this.testing) return;
@@ -474,6 +578,21 @@ export default {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+}
+
+.server-modal__progress {
+  margin-top: 0.6rem;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.server-modal__progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #4a90d9;
+  transition: width 0.2s ease;
 }
 
 .server-modal__status {

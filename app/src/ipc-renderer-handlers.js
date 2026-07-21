@@ -359,6 +359,12 @@ function ipcRendererHandlers() {
     updateSidecarStatus(status);
   });
 
+  // Model download progress pushes (same cache pattern as sidecar:status).
+  subscribe('sidecar:models-progress', async (event, progress) => {
+    const { updateModelDownloadProgress } = await import('./util/model-download-status.js');
+    updateModelDownloadProgress(progress);
+  });
+
   subscribe('saveBeforeQuit', () => {
     saveBeforeQuit();
   });

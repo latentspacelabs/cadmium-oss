@@ -23,8 +23,9 @@ packaged builds). The copy happens via `extraResources` in
 (win) *before* `electron:build` runs; nothing builds it for you.
 
 **Models are not bundled.** The ~3.3 GB of ONNX artifacts load from
-`userData/models/` at runtime (see §6). Keeps installers small and models
-upgradable independently of app versions.
+`userData/models/` at runtime; the app downloads them on demand from the
+`models-v1` release with size+sha256 verification (see §6). Keeps
+installers small and models upgradable independently of app versions.
 
 **Platform targets: mac arm64 + win x64, deliberately.** The mac target
 used to say `universal`, but we only compile the sidecar for arm64 — a
@@ -176,6 +177,19 @@ cap; bandwidth on public repos is free (the reason GH Releases won over
 S3+CloudFront — swapping later is a one-line base-URL change in the
 manifest).
 
+**In-app bootstrap**: the Server Settings modal offers "Download models"
+whenever the embedded backend's status reports missing model files. The
+main-process `ModelDownloader` (`app/src/model-downloader.js`; pure
+planning in `util/model-download-core.js`) streams each file to
+`<name>.part` while hashing, requires the exact manifest size AND sha256,
+then renames onto the final name — the sidecar's missing-file probe only
+ever sees fully verified files, and its failed-missing state self-clears
+on the ensure that runs after a successful download. Policy: required
+models everywhere, the bucket-pinned AnT only on macOS (CoreML fast
+path). Progress streams over `sidecar:models-progress` IPC. Downloads
+use Electron's `net` (follows the GitHub 302 → CDN redirect, honors
+system proxies). No resume yet: a failed/cancelled file refetches whole.
+
 GH Releases downside to remember: 2 GiB/file ceiling with little headroom
 over the 1.39 GB AnT fp32, and no signed URLs / download analytics.
 
@@ -185,9 +199,10 @@ over the 1.39 GB AnT fp32, and no signed URLs / download analytics.
   GitHub yet). Most likely friction: Windows `cargo test` runtime — the
   sidecar's Windows validation so far was Python-side (DirectML parity on
   the EC2 rig), never `cargo test` under MSVC.
-- **Model download/bootstrap in the app**: packaged builds still expect
-  models pre-placed in `userData/models/`. The manifest has everything a
-  downloader needs (URLs + integrity); the flow itself is unbuilt.
+- **Model bootstrap end-to-end test**: the downloader is built and
+  unit-tested, but a real fetch against the `models-v1` release needs the
+  release to exist (and the repo public for anonymous URLs). Resume
+  support for interrupted GB-scale downloads is a known gap.
 - **Verify goldens in CI**: the `verify_*` bins + a Windows CPU
   `parity_replay` need a durable home for the multi-GB golden dirs
   (candidates: a dedicated release tag like the models, or S3).

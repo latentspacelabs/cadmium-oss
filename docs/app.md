@@ -350,10 +350,11 @@ Deliberate, tracked debt (in rough priority order):
   must never log to stderr). Status flows over `sidecar:*` IPC into the
   Settings modal. When the embedded backend is unreachable, `modal.js`
   shows the supervisor's actual failure (missing binary/models, crash
-  loop) instead of the generic "No Internet Connection" dialog.
-  Remaining: model download/bootstrap into `userData/models/` (today the
-  files must already exist there, or
-  `CADMIUM_MODELS_DIR`/`CADMIUM_SIDECAR_BIN` in dev).
+  loop) instead of the generic "No Internet Connection" dialog. Missing
+  models are self-serve: the Settings modal offers a verified download
+  from the `models-v1` release (`model-downloader.js`, progress over
+  `sidecar:models-progress`; see `build-and-release.md` §6). Dev still
+  overrides via `CADMIUM_MODELS_DIR`/`CADMIUM_SIDECAR_BIN`.
 - **Build/CI/packaging/signing/releases**: see `build-and-release.md` —
   local packaged builds, the GitHub Actions pipeline, env-driven
   signing/notarization, tag-drafted releases, and model-artifact

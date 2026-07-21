@@ -275,6 +275,52 @@ ipcMain.handle('sidecar:stop', () => {
   return sidecarManager ? sidecarManager.stop() : null;
 });
 
+// --- Model download/bootstrap (fills <userData>/models from the manifest) --
+let modelDownloader = null;
+function getModelDownloader() {
+  if (!modelDownloader) {
+    // eslint-disable-next-line global-require
+    const { createModelDownloader } = require('./model-downloader');
+    modelDownloader = createModelDownloader({
+      modelsDir: getSidecarManager().paths.modelsDir,
+      onProgress: (progress) => {
+        if (win && win.webContents) win.webContents.send('sidecar:models-progress', progress);
+      },
+    });
+  }
+  return modelDownloader;
+}
+
+// What a download would fetch right now (files + total bytes) — never starts.
+ipcMain.handle('sidecar:download-plan', () => {
+  const plan = getModelDownloader().plan();
+  return {
+    files: plan.map((p) => ({ file: p.file, bytes: p.bytes })),
+    totalBytes: plan.reduce((sum, p) => sum + p.bytes, 0),
+  };
+});
+
+// Start (or join) a download run; resolves with the terminal snapshot. On
+// success, poke the supervisor — its failed-missing state self-clears once
+// the files exist, so the sidecar comes up without further user action.
+ipcMain.handle('sidecar:download-models', async () => {
+  const result = await getModelDownloader().start();
+  if (result.state === 'done') {
+    try { await getSidecarManager().ensureStarted(); } catch (e) { console.error(e); }
+  }
+  return result;
+});
+
+ipcMain.handle('sidecar:cancel-download', () => {
+  if (modelDownloader) modelDownloader.cancel();
+  return null;
+});
+
+// Snapshot for late subscribers (modal reopened mid-download).
+ipcMain.handle('sidecar:models-progress', () => {
+  return modelDownloader ? modelDownloader.getProgress() : { state: 'idle' };
+});
+
 // called on quit-cadmium
 async function cleanUp() {
   console.log('Starting clean up ...');

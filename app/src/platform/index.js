@@ -71,6 +71,26 @@ export function stopSidecar() {
   return ipcRenderer().invoke('sidecar:stop');
 }
 
+// Model download/bootstrap into <userData>/models. Progress pushes arrive on
+// 'sidecar:models-progress' (see util/model-download-status.js); the plan
+// call is a side-effect-free "what would download, how many bytes" probe.
+
+export function getModelDownloadPlan() {
+  return ipcRenderer().invoke('sidecar:download-plan');
+}
+
+export function downloadModels() {
+  return ipcRenderer().invoke('sidecar:download-models');
+}
+
+export function cancelModelDownload() {
+  return ipcRenderer().invoke('sidecar:cancel-download');
+}
+
+export function getModelDownloadProgress() {
+  return ipcRenderer().invoke('sidecar:models-progress');
+}
+
 // --- Temp files (tracked in the main process for cleanup) ---
 
 export function addTempFile(filePath) {

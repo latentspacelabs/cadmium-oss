@@ -142,8 +142,9 @@ an MKL-VML ln bits table) — see `src/postprocess/`.
 - R4 packaging: app spawns/supervises the sidecar (done). Model
   distribution: artifacts live on the `models-v1` GitHub Release
   (uploaded by `serving/tools/upload_models_release.sh`, pinned by
-  size+sha256 in `app/src/util/model-manifest.js`); the in-app
-  download/bootstrap into `userData/models/` is still unbuilt.
+  size+sha256 in `app/src/util/model-manifest.js`); the app downloads
+  them on demand with verification (see `build-and-release.md` §6).
+  End-to-end fetch test awaits the release existing.
 - R5 CI: `.github/workflows/ci.yml` runs `cargo test` (mac+win), the app
   jest suite, and packaged mac/win builds with the bundled sidecar.
   Still missing: the verify bins + a Windows CPU parity_replay in Actions
