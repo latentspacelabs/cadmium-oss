@@ -12,6 +12,7 @@
 #   gh workflow run upload-models.yml \
 #     -f ant_url='https://…/ant_v2_fp32.onnx?…' \
 #     -f ant_bucket_url='https://…/ant_v2_fp32_bucket.onnx?…' \
+#     -f ant_tiled_url='https://…/ant_v2_fp32_tiledscatter.onnx?…' \
 #     -f gap_url='https://…/gap_closer_fp32.onnx?…'
 name: Upload model artifacts to the release
 
@@ -23,6 +24,9 @@ on:
         required: false
       ant_bucket_url:
         description: "URL to ant_v2_fp32_bucket.onnx (blank = skip)"
+        required: false
+      ant_tiled_url:
+        description: "URL to ant_v2_fp32_tiledscatter.onnx (blank = skip)"
         required: false
       gap_url:
         description: "URL to gap_closer_fp32.onnx (blank = skip)"
@@ -44,6 +48,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ANT_URL: ${{ inputs.ant_url }}
           ANT_BUCKET_URL: ${{ inputs.ant_bucket_url }}
+          ANT_TILED_URL: ${{ inputs.ant_tiled_url }}
           GAP_URL: ${{ inputs.gap_url }}
         run: |
           set -euo pipefail
@@ -54,6 +59,7 @@ jobs:
           declare -A URLS=(
             [ant_v2_fp32.onnx]="$ANT_URL"
             [ant_v2_fp32_bucket.onnx]="$ANT_BUCKET_URL"
+            [ant_v2_fp32_tiledscatter.onnx]="$ANT_TILED_URL"
             [gap_closer_fp32.onnx]="$GAP_URL"
           )
 

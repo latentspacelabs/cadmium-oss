@@ -157,14 +157,21 @@ private repo it would need a token — moot until the repo is public.
 
 ## 6. Model artifacts
 
-The three ONNX files ship as assets of the hand-managed **`models-v1`**
-GitHub Release (the tag doesn't match `v*`, so it never triggers app
-builds):
+The ONNX files ship as assets of the hand-managed **`models-v1`** GitHub
+Release (the tag doesn't match `v*`, so it never triggers app builds):
 
-- `ant_v2_fp32.onnx` (1.39 GB) — AnT colorizer, dynamic shapes
-- `ant_v2_fp32_bucket.onnx` (1.39 GB) — bucket-pinned CoreML fast path
-  (optional)
-- `gap_closer_fp32.onnx` (0.50 GB) — GapCloser, the parity anchor
+- `ant_v2_fp32.onnx` (1.39 GB) — AnT colorizer, dynamic shapes. Required
+  everywhere; the universal export every EP can run.
+- `ant_v2_fp32_bucket.onnx` (1.39 GB) — bucket-pinned CoreML fast path.
+  Optional, macOS-only (`platform: 'darwin'`).
+- `ant_v2_fp32_tiledscatter.onnx` (1.39 GB) — DirectML fast path. Optional,
+  Windows-only (`platform: 'win32'`). The pool `ScatterElements(add)` sites
+  are rewritten as a bounded tiled one-hot MatMul (`scatter_to_tiled.py`),
+  so the whole forward stays on the GPU instead of falling back to CPU —
+  ~5.7× faster (6.3 s → 1.1 s), argmax-exact. Dead weight on macOS/CPU (it's
+  ~20% slower there than the stock scatter), hence a variant rather than the
+  universal export.
+- `gap_closer_fp32.onnx` (0.50 GB) — GapCloser, the parity anchor. Required.
 
 `app/src/util/model-manifest.js` is the single source of truth: names,
 byte sizes, sha256 hashes, release tag/URL. CommonJS on purpose so both
@@ -177,7 +184,8 @@ swapping later is a one-line base-URL change in the manifest).
 **Publishing the artifacts (default: on a runner).** These files are
 multi-GB, so the upload should never run from a laptop uplink. The
 `upload-models.yml` workflow (`gh workflow run upload-models.yml -f
-ant_url=… -f ant_bucket_url=… -f gap_url=…`) runs on a GitHub runner:
+ant_url=… -f ant_bucket_url=… -f ant_tiled_url=… -f gap_url=…`) runs on a
+GitHub runner:
 it fetches each file from the URL you give it (stage them somewhere fast —
 an S3 presigned URL, or an HTTP source on the training host), verifies
 size + sha256 against the manifest, and uploads to `MODELS_RELEASE_TAG`
@@ -194,8 +202,12 @@ planning in `util/model-download-core.js`) streams each file to
 then renames onto the final name — the sidecar's missing-file probe only
 ever sees fully verified files, and its failed-missing state self-clears
 on the ensure that runs after a successful download. Policy: required
-models everywhere, the bucket-pinned AnT only on macOS (CoreML fast
-path). Progress streams over `sidecar:models-progress` IPC. Downloads
+models everywhere, plus each platform's optional fast-path export — the
+bucket-pinned AnT on macOS (CoreML), the tiled-scatter AnT on Windows
+(DirectML). On a Windows box with no DirectX-12 device the sidecar falls
+back to the stock model on the CPU EP, so the tiled model is a pure
+accelerator — nothing breaks without it. Progress streams over
+`sidecar:models-progress` IPC. Downloads
 use Electron's `net` (follows the GitHub 302 → CDN redirect, honors
 system proxies). No resume yet: a failed/cancelled file refetches whole.
 
