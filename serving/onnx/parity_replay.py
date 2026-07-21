@@ -23,13 +23,19 @@ import time
 import numpy as np
 
 
-def make_session(path, coreml=None, basic_opt=False, dml=False):
+def make_session(path, coreml=None, basic_opt=False, dml=False, enable_profiling=False):
     import onnxruntime as ort
 
     so = ort.SessionOptions()
     so.log_severity_level = 3
     if basic_opt:
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    if enable_profiling:
+        # dumps a chrome-trace JSON (per-node dur + args.provider) next to the
+        # model — feed it to serving/onnx/dml_profile.py or dml_bench.py to see
+        # the DML-vs-CPU op split and where the wall-clock goes.
+        so.enable_profiling = True
+        so.profile_file_prefix = os.path.join(os.path.dirname(path) or ".", "antprof")
     providers = ["CPUExecutionProvider"]
     if coreml is not None:
         providers = [
@@ -40,6 +46,26 @@ def make_session(path, coreml=None, basic_opt=False, dml=False):
         # Windows DirectML (onnxruntime-directml wheel)
         providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
     return ort.InferenceSession(path, sess_options=so, providers=providers)
+
+
+def make_iobinding_runner(sess):
+    """Return run(feed)->logits that uses IOBinding: inputs bound from CPU,
+    outputs bound to the session's device, output copied back once. On DML this
+    only removes the SESSION-boundary host<->device copies (small here); it does
+    NOT touch the internal MemcpyToHost around the CPU-fallback ScatterElements,
+    which is where the DML wall-clock actually goes (see the ORT profile)."""
+    out_names = [o.name for o in sess.get_outputs()]
+
+    def run(feed):
+        io = sess.io_binding()
+        for name, arr in feed.items():
+            io.bind_cpu_input(name, arr)
+        for name in out_names:
+            io.bind_output(name)
+        sess.run_with_iobinding(io)
+        return io.copy_outputs_to_cpu()[0]
+
+    return run
 
 
 def pin_dims(src, dst, feed, only=None):
@@ -94,6 +120,10 @@ def main():
     ap.add_argument("--bucketed", action="store_true",
                     help="use the bucket_feed_* arrays — every pair shares one shape, "
                          "so CoreML compiles ONCE for the whole corpus")
+    ap.add_argument("--iobinding", action="store_true",
+                    help="DML: run via IOBinding (bind I/O to device) instead of run()")
+    ap.add_argument("--profile", action="store_true",
+                    help="DML: enable ORT profiling (dumps antprof_*.json next to the model)")
     args = ap.parse_args()
 
     pairs = load_pairs(args.feeds, bucketed=args.bucketed)
@@ -105,8 +135,13 @@ def main():
         runners["cpu"] = lambda pair: cpu.run(None, pair["feed"])[0]
 
     if args.dml:
-        dml_sess = make_session(args.onnx, dml=args.dml, basic_opt=args.basic_opt)
-        runners["dml"] = lambda pair: dml_sess.run(None, pair["feed"])[0]
+        dml_sess = make_session(args.onnx, dml=args.dml, basic_opt=args.basic_opt,
+                                enable_profiling=args.profile)
+        if args.iobinding:
+            _iorun = make_iobinding_runner(dml_sess)
+            runners["dml"] = lambda pair: _iorun(pair["feed"])
+        else:
+            runners["dml"] = lambda pair: dml_sess.run(None, pair["feed"])[0]
 
     coreml_pinned_model = None
     if args.coreml and args.bucketed:
