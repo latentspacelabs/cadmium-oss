@@ -1,6 +1,6 @@
 {
   "name": "Cadmium",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "author": "Latent Space Labs",
   "description": "Color your animation frames with AI.",
   "private": true,
@@ -15,9 +15,8 @@
     "i18n:extract": "i18next --config i18next-parser.config.js",
     "postinstall": "electron-builder install-app-deps",
     "postuninstall": "electron-builder install-app-deps",
-    "test:e2e": "vue-cli-service test:e2e",
-    "test:unit": "vue-cli-service test:unit",
     "test:e2e": "node tests/e2e/run.js",
+    "test:unit": "vue-cli-service test:unit",
     "publish": "NODE_ENV=production vue-cli-service electron:build -p always"
   },
   "main": "background.js",
