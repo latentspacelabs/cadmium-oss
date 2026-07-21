@@ -40,9 +40,17 @@ struct Args {
     #[arg(long, value_name = "PATH.onnx")]
     ant_model_bucket: Option<PathBuf>,
 
+    /// Tiled-scatter AnT v2 export (pool ScatterElements rewritten as a
+    /// bounded one-hot MatMul) for the DirectML EP; enables the Windows `auto`
+    /// fast path. On a machine with no DirectX-12 device the sidecar falls
+    /// back to --ant-model on the CPU EP.
+    #[arg(long, value_name = "PATH.onnx")]
+    ant_model_tiled: Option<PathBuf>,
+
     /// Execution provider for the AnT forward: auto|cpu|coreml|dml.
-    /// `auto` resolves to coreml on macOS when --ant-model-bucket is
-    /// supplied, else cpu. The GapCloser always runs on the CPU EP.
+    /// `auto` resolves to coreml on macOS when --ant-model-bucket is supplied,
+    /// dml on Windows when --ant-model-tiled is supplied, else cpu. The
+    /// GapCloser always runs on the CPU EP.
     #[arg(long, default_value = "auto")]
     ep: EpSelect,
 
@@ -124,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.gap_model,
         args.ant_model,
         args.ant_model_bucket,
+        args.ant_model_tiled,
         args.ep,
     )?);
     let app = serve::router(engine);

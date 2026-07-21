@@ -5,6 +5,7 @@ import {
   MODEL_ANT,
   MODEL_GAP,
   MODEL_ANT_BUCKET,
+  MODEL_ANT_TILED,
   resolveSidecarPaths,
   missingSidecarFiles,
   buildSidecarArgs,
@@ -39,6 +40,7 @@ describe('resolveSidecarPaths', () => {
     expect(paths.antModelPath).toBe(`/ud/models/${MODEL_ANT}`);
     expect(paths.gapModelPath).toBe(`/ud/models/${MODEL_GAP}`);
     expect(paths.antBucketModelPath).toBe(`/ud/models/${MODEL_ANT_BUCKET}`);
+    expect(paths.antTiledModelPath).toBe(`/ud/models/${MODEL_ANT_TILED}`);
   });
 
   it('packaged windows: binary name gains .exe', () => {
@@ -151,6 +153,15 @@ describe('buildSidecarArgs', () => {
     });
     expect(args.slice(-2)).toEqual(['--ant-model-bucket', '/m/bucket.onnx']);
   });
+
+  it('adds --ant-model-tiled only when a tiled model is supplied', () => {
+    const args = buildSidecarArgs({
+      port: 1, antModelPath: 'a', gapModelPath: 'g', antTiledModelPath: '/m/tiled.onnx',
+    });
+    expect(args.slice(-2)).toEqual(['--ant-model-tiled', '/m/tiled.onnx']);
+    expect(buildSidecarArgs({ port: 1, antModelPath: 'a', gapModelPath: 'g' }))
+      .not.toContain('--ant-model-tiled');
+  });
 });
 
 describe('restartDelayMs', () => {
@@ -214,7 +225,9 @@ function makeHarness({
     existsFn: (p) => exists(p),
     spawnFn: (bin, args, opts) => {
       const child = new FakeChild(100 + h.spawned.length, childOptions);
-      h.spawned.push({ bin, args, opts, child });
+      h.spawned.push({
+        bin, args, opts, child,
+      });
       return child;
     },
     allocatePortFn: async () => {

@@ -20,15 +20,20 @@ import { ModelDownloader } from '@/model-downloader';
 // ---------------------------------------------------------------------------
 
 describe('wantedModelFiles', () => {
-  it('darwin wants everything including the optional bucket model', () => {
-    expect(wantedModelFiles('darwin').map((m) => m.file))
-      .toEqual(MODEL_FILES.map((m) => m.file));
+  const required = MODEL_FILES.filter((m) => m.required).map((m) => m.file);
+
+  it('darwin wants the required models + the macOS bucket model, not the Windows tiled model', () => {
+    const files = wantedModelFiles('darwin').map((m) => m.file);
+    required.forEach((f) => expect(files).toContain(f));
+    expect(files).toContain('ant_v2_fp32_bucket.onnx');
+    expect(files).not.toContain('ant_v2_fp32_tiledscatter.onnx');
   });
 
-  it('win32 wants only the required models', () => {
-    const files = wantedModelFiles('win32');
-    expect(files.every((m) => m.required)).toBe(true);
-    expect(files.length).toBeGreaterThanOrEqual(2);
+  it('win32 wants the required models + the Windows tiled model, not the macOS bucket model', () => {
+    const files = wantedModelFiles('win32').map((m) => m.file);
+    required.forEach((f) => expect(files).toContain(f));
+    expect(files).toContain('ant_v2_fp32_tiledscatter.onnx');
+    expect(files).not.toContain('ant_v2_fp32_bucket.onnx');
   });
 });
 
@@ -64,7 +69,7 @@ describe('planModelDownloads', () => {
       modelsDir, platform: 'win32', sizeFn: () => null,
     });
     expect(totalPlanBytes(plan))
-      .toBe(MODEL_FILES.filter((m) => m.required).reduce((s, m) => s + m.bytes, 0));
+      .toBe(wantedModelFiles('win32').reduce((s, m) => s + m.bytes, 0));
     expect(formatGB(1_388_610_539)).toBe('1.4 GB');
     expect(formatGB(497_500_380)).toBe('0.5 GB');
   });
@@ -158,7 +163,9 @@ function makeDownloader({ plan, fs = makeFakeFs(), request = makeFakeRequest() }
     onProgress: (p) => progress.push(p),
   });
   dl.plan = () => plan; // decouple from the real multi-GB manifest
-  return { dl, fs, request, progress };
+  return {
+    dl, fs, request, progress,
+  };
 }
 
 const CHUNKS = [Buffer.from('hello '), Buffer.from('world')];
@@ -173,7 +180,9 @@ const ITEM = {
 
 describe('ModelDownloader', () => {
   it('streams, verifies size+sha256, renames onto the final name', async () => {
-    const { dl, fs, request, progress } = makeDownloader({ plan: [ITEM] });
+    const {
+      dl, fs, request, progress,
+    } = makeDownloader({ plan: [ITEM] });
     const run = dl.start();
     const { handlers } = request.calls[0];
     handlers.onResponse(200);
@@ -254,7 +263,9 @@ describe('ModelDownloader', () => {
       destPath: '/ud/models/n.onnx',
       partPath: '/ud/models/n.onnx.part',
     };
-    const { dl, fs, request, progress } = makeDownloader({ plan: [ITEM, item2] });
+    const {
+      dl, fs, request, progress,
+    } = makeDownloader({ plan: [ITEM, item2] });
     const run = dl.start();
 
     expect(request.calls.length).toBe(1); // second not started yet

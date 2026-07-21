@@ -96,7 +96,9 @@ async fn main() -> ExitCode {
         })
         .unwrap_or_default();
 
-    let engine = match Engine::new(gap_model, ant_model, ant_model_bucket, ep) {
+    // verify_http never exercises the DirectML tiled fast path (it gates the
+    // CPU/CoreML goldens), so no tiled model.
+    let engine = match Engine::new(gap_model, ant_model, ant_model_bucket, None, ep) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             eprintln!("engine: {e}");

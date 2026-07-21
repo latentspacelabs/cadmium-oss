@@ -12,13 +12,17 @@
 //!             (`tokenize::bucket`); a feed that exceeds the bucket falls
 //!             back to a lazily-built dynamic CPU session. One static shape
 //!             means ONE CoreML compile for the whole corpus.
-//!   dml     — Windows: the DYNAMIC AnT model on DirectML + CPU fallback
-//!             (DML handles dynamic shapes, no bucket model needed) —
-//!             mirrors `parity_replay.py --dml`. Compiled only for Windows
-//!             targets; a stub error elsewhere.
+//!   dml     — Windows: the TILED-scatter AnT model (`--ant-model-tiled`, pool
+//!             ScatterElements rewritten as a bounded one-hot MatMul so the
+//!             whole forward stays on the GPU) on DirectML, built lazily on
+//!             first /colorize. If the tiled model is absent it uses the stock
+//!             dynamic model instead; either way, if DirectML cannot
+//!             initialize (no DirectX-12 device) it falls back to the stock
+//!             model on the CPU EP. Compiled only for Windows targets; a stub
+//!             error elsewhere.
 //!   auto    — coreml when running on macOS with `--ant-model-bucket`
-//!             supplied, else cpu. dml stays opt-in until the Windows
-//!             evaluation lands.
+//!             supplied; dml when running on Windows with `--ant-model-tiled`
+//!             supplied; else cpu.
 //!
 //! The GapCloser stays on the CPU EP regardless of `--ep` (2.6 s per
 //! /segment is acceptable; moving it to CoreML is a follow-up).
@@ -70,7 +74,9 @@ enum AntEp {
     /// Bucket-pinned model on CoreML; dynamic-CPU fallback for feeds that
     /// exceed CORPUS_BUCKET.
     CoreMlBucket,
-    /// Dynamic model, DirectML EP with CPU fallback (Windows only).
+    /// DirectML EP (Windows only): the tiled-scatter model when supplied, else
+    /// the dynamic model. Falls back to the dynamic model on the CPU EP if
+    /// DirectML can't initialize.
     Dml,
 }
 
@@ -88,9 +94,12 @@ pub struct Engine {
     pub gap_model_path: Option<PathBuf>,
     pub ant_model_path: Option<PathBuf>,
     pub ant_bucket_model_path: Option<PathBuf>,
+    pub ant_tiled_model_path: Option<PathBuf>,
     ant_ep: AntEp,
     gap: Mutex<Option<Session>>,
-    /// Dynamic AnT model: CPU EP, or DirectML+CPU when `ant_ep` is Dml.
+    /// The non-CoreML AnT session: the dynamic model on the CPU EP, or (when
+    /// `ant_ep` is Dml) the tiled model on DirectML — with a lazy fallback to
+    /// the dynamic model on the CPU EP if DirectML can't initialize.
     ant: Mutex<Option<Session>>,
     /// Bucket-pinned AnT model on the CoreML EP.
     ant_bucket: Mutex<Option<BucketState>>,
@@ -181,6 +190,7 @@ impl Engine {
         gap_model_path: Option<PathBuf>,
         ant_model_path: Option<PathBuf>,
         ant_bucket_model_path: Option<PathBuf>,
+        ant_tiled_model_path: Option<PathBuf>,
         ep: EpSelect,
     ) -> Result<Engine, String> {
         let ant_ep = match ep {
@@ -188,6 +198,11 @@ impl Engine {
             EpSelect::Auto => {
                 if cfg!(target_os = "macos") && ant_bucket_model_path.is_some() {
                     AntEp::CoreMlBucket
+                } else if cfg!(target_os = "windows") && ant_tiled_model_path.is_some() {
+                    // The tiled model is what makes DirectML worthwhile (the
+                    // stock model's scatter falls back to CPU); only auto-enable
+                    // DML when it is present.
+                    AntEp::Dml
                 } else {
                     AntEp::Cpu
                 }
@@ -217,6 +232,7 @@ impl Engine {
             gap_model_path,
             ant_model_path,
             ant_bucket_model_path,
+            ant_tiled_model_path,
             ant_ep,
             gap: Mutex::new(None),
             ant: Mutex::new(None),
@@ -277,20 +293,49 @@ impl Engine {
         }
     }
 
-    /// Dynamic-shape AnT session (CPU EP, or DirectML+CPU under `--ep dml`),
-    /// built on first use.
+    /// The non-CoreML AnT session (CPU EP, or DirectML under `--ep dml` /
+    /// Windows `auto`), built on first use.
     fn run_ant_dynamic(&self, feed: &AntFeed) -> Result<(Vec<usize>, Vec<f32>), String> {
-        let Some(path) = &self.ant_model_path else {
-            return Err("no AnT model configured (start the sidecar with --ant-model)".into());
-        };
         let mut guard = self.ant.lock().map_err(|_| "ant session poisoned")?;
         if guard.is_none() {
-            *guard = Some(match self.ant_ep {
-                AntEp::Dml => build_dml_session("AnT v2 (dynamic)", path)?,
-                _ => build_cpu_session("AnT v2 (dynamic)", path)?,
-            });
+            *guard = Some(self.build_ant_session()?);
         }
         run_ant_session(guard.as_mut().unwrap(), feed)
+    }
+
+    /// Build the non-CoreML AnT session. Under the Dml plan this prefers the
+    /// tiled-scatter model on DirectML (all ops stay on the GPU); if the tiled
+    /// model is absent it uses the stock dynamic model on DirectML, and if
+    /// DirectML itself can't initialize (e.g. no DirectX-12 device) it falls
+    /// back to the stock dynamic model on the CPU EP — so a GPU-less Windows
+    /// box still serves, just at CPU speed.
+    fn build_ant_session(&self) -> Result<Session, String> {
+        if self.ant_ep == AntEp::Dml {
+            // Prefer the DML-native tiled model, else the stock model on DML.
+            let dml_path = self
+                .ant_tiled_model_path
+                .as_ref()
+                .or(self.ant_model_path.as_ref());
+            if let Some(path) = dml_path {
+                let what = if self.ant_tiled_model_path.is_some() {
+                    "AnT v2 (tiled)"
+                } else {
+                    "AnT v2 (dynamic)"
+                };
+                match build_dml_session(what, path) {
+                    Ok(session) => return Ok(session),
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "DirectML session unavailable; falling back to the stock AnT model on the CPU EP"
+                    ),
+                }
+            }
+        }
+        let path = self
+            .ant_model_path
+            .as_ref()
+            .ok_or("no AnT model configured (start the sidecar with --ant-model)")?;
+        build_cpu_session("AnT v2 (dynamic)", path)
     }
 
     /// Bucket-pinned AnT session on CoreML, built on first use. `feed` must

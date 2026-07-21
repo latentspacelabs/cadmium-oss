@@ -9,6 +9,7 @@
  *                   --ant-model <ant_v2_fp32.onnx>
  *                   --gap-model <gap_closer_fp32.onnx>
  *                   [--ant-model-bucket <ant_v2_fp32_bucket.onnx>]
+ *                   [--ant-model-tiled <ant_v2_fp32_tiledscatter.onnx>]
  *                   --ep auto|cpu|coreml|dml
  *   GET /health answers 200 once the server is listening (ONNX sessions are
  *   built lazily on first use, so "listening" is the readiness signal).
@@ -29,6 +30,8 @@ export const MODEL_ANT = 'ant_v2_fp32.onnx';
 export const MODEL_GAP = 'gap_closer_fp32.onnx';
 // Optional: the CORPUS_BUCKET-pinned export that enables the CoreML fast path.
 export const MODEL_ANT_BUCKET = 'ant_v2_fp32_bucket.onnx';
+// Optional: the tiled-scatter export that enables the DirectML fast path.
+export const MODEL_ANT_TILED = 'ant_v2_fp32_tiledscatter.onnx';
 
 export const SIDECAR_BIN_BASENAME = 'cadmium-sidecar';
 
@@ -78,12 +81,14 @@ export function resolveSidecarPaths({
     antModelPath: path.join(modelsDir, MODEL_ANT),
     gapModelPath: path.join(modelsDir, MODEL_GAP),
     antBucketModelPath: path.join(modelsDir, MODEL_ANT_BUCKET),
+    antTiledModelPath: path.join(modelsDir, MODEL_ANT_TILED),
   };
 }
 
 /**
  * Which required files are absent, as [{ kind, file, path }]. The bucket
- * model is optional (CoreML fast path) and never reported missing.
+ * (CoreML) and tiled (DirectML) models are optional fast-path exports and are
+ * never reported missing.
  */
 export function missingSidecarFiles(paths, existsFn) {
   const missing = [];
@@ -101,10 +106,14 @@ export function missingSidecarFiles(paths, existsFn) {
 
 /**
  * The argv (after the binary path) for one sidecar spawn. `--ep auto` lets
- * the sidecar pick CoreML on macOS when the bucket model is supplied, else
- * CPU (DirectML stays opt-in until the Windows evaluation).
+ * the sidecar pick its fast path per OS: CoreML on macOS when the bucket model
+ * is supplied, DirectML on Windows when the tiled model is supplied, else CPU.
+ * On Windows with the tiled model but no DirectX-12 device, the sidecar itself
+ * falls back to the stock model on the CPU EP.
  */
-export function buildSidecarArgs({ port, antModelPath, gapModelPath, antBucketModelPath = null }) {
+export function buildSidecarArgs({
+  port, antModelPath, gapModelPath, antBucketModelPath = null, antTiledModelPath = null,
+}) {
   const args = [
     '--port', String(port),
     '--host', '127.0.0.1',
@@ -118,6 +127,9 @@ export function buildSidecarArgs({ port, antModelPath, gapModelPath, antBucketMo
   ];
   if (antBucketModelPath) {
     args.push('--ant-model-bucket', antBucketModelPath);
+  }
+  if (antTiledModelPath) {
+    args.push('--ant-model-tiled', antTiledModelPath);
   }
   return args;
 }

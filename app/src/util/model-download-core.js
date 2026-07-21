@@ -5,9 +5,10 @@
  * src/model-downloader.js (main process only).
  *
  * Policy:
- *  - Required models download everywhere; the bucket-pinned AnT export only
- *    on macOS (it exists to feed the CoreML fast path — dead weight on
- *    Windows/DirectML, which runs the dynamic model directly).
+ *  - Required models download everywhere. An optional model with a `platform`
+ *    field downloads only on that platform: the bucket-pinned AnT export on
+ *    macOS (the CoreML fast path) and the tiled-scatter AnT export on Windows
+ *    (the DirectML fast path). Each is dead weight on the other OS.
  *  - A file is "present" only at the manifest's exact byte size; any other
  *    size is a truncated/stale artifact and gets re-fetched. Full sha256
  *    verification happens in the downloader on the bytes it streams.
@@ -18,7 +19,7 @@ import { MODEL_FILES, modelUrl } from './model-manifest';
 
 /** Manifest entries this platform wants, in download order. */
 export function wantedModelFiles(platform) {
-  return MODEL_FILES.filter((m) => m.required || platform === 'darwin');
+  return MODEL_FILES.filter((m) => m.required || m.platform === platform);
 }
 
 /**

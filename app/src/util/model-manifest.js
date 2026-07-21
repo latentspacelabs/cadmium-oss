@@ -31,12 +31,31 @@ const MODEL_FILES = [
   },
   {
     // AnT colorizer with bucket-pinned shapes — the CoreML fast path
-    // (--ant-model-bucket). Optional: without it the sidecar still serves
-    // every request via the dynamic model.
+    // (--ant-model-bucket). Optional and macOS-only: without it the sidecar
+    // still serves every request via the dynamic model.
     file: 'ant_v2_fp32_bucket.onnx',
     bytes: 1388609892,
     sha256: '42b3cfd3bcfd23beef9ef4eea282127145a3bd177dca533bd6d5ccd51b4b3275',
     required: false,
+    platform: 'darwin',
+  },
+  {
+    // AnT colorizer with the pool ScatterElements(add) sites rewritten as a
+    // bounded tiled one-hot MatMul (serving/onnx/scatter_to_tiled.py) — the
+    // DirectML fast path (--ant-model-tiled). DirectML has no scatter-add
+    // kernel, so on the stock model those scatters fall back to CPU and force
+    // ~1 GB of PCIe copies per forward (~95% of the DML wall-clock); the tiled
+    // rewrite is fully DML-native and argmax-exact, cutting the forward ~5.7×.
+    // Optional and Windows-only: on a machine with no DirectX-12 device the
+    // sidecar falls back to the stock model on the CPU EP, and it is dead
+    // weight on macOS (CoreML runs the scatter natively). ~20% slower than the
+    // stock model on CPU, which is why it is DML-only, not the universal
+    // export.
+    file: 'ant_v2_fp32_tiledscatter.onnx',
+    bytes: 1389055751,
+    sha256: '64a89282e0f0a18e182257718341dfc0838481ec63d1bb5fb45bad82b25814d8',
+    required: false,
+    platform: 'win32',
   },
   {
     // GapCloser, fp32 (fp16 exists for DirectML but fp32 is the parity
