@@ -1,0 +1,38 @@
+# One-shot utility: attach a CI run's built installers to an existing
+# release, entirely server-side (the runner → GitHub upload is fast, unlike
+# a slow local uplink). Dispatch manually:
+#   gh workflow run attach-artifacts.yml -f run_id=<CI run> -f release_tag=<tag>
+# Uploads every artifact file except builder-debug.yml, clobbering existing
+# assets of the same name. Works against draft releases (looked up by tag).
+name: Attach run artifacts to a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "CI run id to pull built installers from"
+        required: true
+      release_tag:
+        description: "Release tag to attach the files to"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts from the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "${{ inputs.run_id }}" -R "${{ github.repository }}" -D dl
+      - name: List what was downloaded
+        run: find dl -type f -printf '%s\t%p\n'
+      - name: Attach installers + updater feeds to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          find dl -type f ! -name 'builder-debug.yml' -print0 \
+            | xargs -0 gh release upload "${{ inputs.release_tag }}" -R "${{ github.repository }}" --clobber
