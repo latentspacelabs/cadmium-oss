@@ -2,11 +2,11 @@
   <div class="server-modal-overlay" v-if="isVisible" @click="onOverlayClick">
     <div class="server-modal" @click.stop>
       <div class="server-modal__header">
-        <h2>{{ firstRun ? t('Connect to your Cadmium server') : t('Server Settings') }}</h2>
+        <h2>{{ firstRun ? t('Choose how Cadmium runs') : t('Server Settings') }}</h2>
         <!-- eslint-disable max-len — the natural-sentence i18n keys cannot be wrapped -->
         <p>{{
           firstRun
-            ? t('Cadmium needs a colorization server to run. Enter the URL of your server to get started.')
+            ? t('Cadmium colorizes your art with an AI model. Run it on this computer, or connect to a server you host. You can change this anytime in Settings.')
             : t('Colorize, analyze, and preprocess requests are sent to this backend.')
         }}</p>
         <!-- eslint-enable max-len -->
@@ -17,27 +17,68 @@
         <div class="server-modal__backends">
           <label
             class="server-modal__backend"
-            :class="{ 'server-modal__backend--selected': kind === BACKEND_HOSTED }"
+            :class="{
+              'server-modal__backend--selected': kind === BACKEND_EMBEDDED,
+              'server-modal__backend--disabled': embeddedBlocked,
+            }"
           >
-            <input type="radio" :value="BACKEND_HOSTED" v-model="kind" />
-            <span class="server-modal__backend-name">{{ t('Hosted server') }}</span>
-            <span class="server-modal__backend-desc">
-              {{ t('A server you run or can reach') }}
+            <input
+              type="radio"
+              :value="BACKEND_EMBEDDED"
+              v-model="kind"
+              :disabled="embeddedBlocked"
+            />
+            <span class="server-modal__backend-body">
+              <span class="server-modal__backend-name">
+                {{ t('Embedded (this computer)') }}
+                <span v-if="firstRun && !embeddedBlocked" class="server-modal__badge">
+                  {{ t('Recommended') }}
+                </span>
+              </span>
+              <!-- eslint-disable-next-line max-len -->
+              <span class="server-modal__backend-desc">{{ t('Runs colorization entirely on this computer. No account or internet needed after a one-time model download.') }}</span>
+              <span class="server-modal__backend-meta">{{ embeddedRequirementsText }}</span>
             </span>
           </label>
           <label
             class="server-modal__backend"
-            :class="{ 'server-modal__backend--selected': kind === BACKEND_EMBEDDED }"
+            :class="{ 'server-modal__backend--selected': kind === BACKEND_HOSTED }"
           >
-            <input type="radio" :value="BACKEND_EMBEDDED" v-model="kind" />
-            <span class="server-modal__backend-name">{{ t('Embedded (this computer)') }}</span>
-            <span class="server-modal__backend-desc">
-              {{ t('A local process the app manages') }}
+            <input type="radio" :value="BACKEND_HOSTED" v-model="kind" />
+            <span class="server-modal__backend-body">
+              <span class="server-modal__backend-name">{{ t('Hosted server') }}</span>
+              <!-- eslint-disable-next-line max-len -->
+              <span class="server-modal__backend-desc">{{ t('Send work to a Cadmium server you run or can reach by URL — for example a GPU box on your network.') }}</span>
+              <span class="server-modal__backend-meta">
+                {{ t('Needs a running server and network access.') }}
+              </span>
             </span>
           </label>
         </div>
 
         <template v-if="kind === BACKEND_EMBEDDED">
+          <label class="server-modal__label">{{ t('This computer') }}</label>
+          <div class="server-modal__caps">
+            <div
+              v-for="row in capabilityRows"
+              :key="row.key"
+              class="server-modal__caps-row"
+            >
+              <span
+                class="server-modal__caps-icon"
+                :class="`server-modal__caps-icon--${row.status}`"
+              >{{ capIconSymbol(row.status) }}</span>
+              <span class="server-modal__caps-name">{{ row.label }}</span>
+              <span class="server-modal__caps-detail">{{ row.detail }}</span>
+            </div>
+            <p v-if="!capabilities" class="server-modal__hint">
+              {{ t('Checking this computer…') }}
+            </p>
+            <p v-if="embeddedBlocked" class="server-modal__hint server-modal__hint--warn">
+              {{ embeddedBlockedText }}
+            </p>
+          </div>
+
           <label class="server-modal__label">{{ t('Status') }}</label>
           <div class="server-modal__embedded">
             <div class="server-modal__embedded-row">
@@ -136,17 +177,18 @@
 
       <div class="server-modal__footer">
         <button
+          v-if="!firstRun"
           class="server-modal__btn server-modal__btn--ghost"
           @click="close"
         >
-          {{ firstRun ? t('Skip for now') : t('Cancel') }}
+          {{ t('Cancel') }}
         </button>
         <button
           class="server-modal__btn server-modal__btn--primary"
           :disabled="!isValid"
           @click="save"
         >
-          {{ t('Save') }}
+          {{ firstRun ? t('Get started') : t('Save') }}
         </button>
       </div>
     </div>
@@ -167,6 +209,7 @@ import {
 import {
   setPref, ensureSidecar, getSidecarStatus, stopSidecar,
   getModelDownloadPlan, downloadModels, cancelModelDownload, getModelDownloadProgress,
+  getSystemCapabilities,
 } from '@/platform';
 import {
   updateSidecarStatus, getLastSidecarStatus, onSidecarStatus,
@@ -175,6 +218,21 @@ import {
   getLastModelDownloadProgress, onModelDownloadProgress,
 } from '@/util/model-download-status';
 import { formatGB } from '@/util/model-download-core';
+import { evaluateEmbeddedCapability } from '@/util/embedded-capability';
+
+// RAM the way people quote it (binary GiB), so a "16 GB" machine reads "16 GB"
+// rather than the 17.2 GB a decimal formatGB would print for os.totalmem().
+function formatMemGiB(bytes) {
+  if (!bytes) return '0 GB';
+  return `${Math.round(bytes / (1024 ** 3))} GB`;
+}
+
+// The radio to preselect: a saved backend's kind; otherwise embedded on first
+// run (the recommended no-setup path), hosted in the settings dialog.
+function defaultBackendKind(backend, firstRun) {
+  if (backend) return backend.kind;
+  return firstRun ? BACKEND_EMBEDDED : BACKEND_HOSTED;
+}
 
 export default {
   name: 'ServerSettingsModal',
@@ -190,7 +248,9 @@ export default {
       t,
       BACKEND_HOSTED,
       BACKEND_EMBEDDED,
-      kind: backend ? backend.kind : BACKEND_HOSTED,
+      // First run defaults to embedded (the no-setup, recommended path); if the
+      // hardware check comes back "unsupported" we fall it back to hosted.
+      kind: defaultBackendKind(backend, this.firstRun),
       url: (backend && backend.baseUrl) || '',
       testing: false,
       testState: null, // null | 'ok' | 'fail'
@@ -201,6 +261,8 @@ export default {
       downloadProgress: getLastModelDownloadProgress(),
       // Bytes a download would fetch right now (null until probed).
       downloadPlanBytes: null,
+      // Machine capabilities for the embedded hardware check (null until probed).
+      capabilities: null,
     };
   },
   computed: {
@@ -208,9 +270,60 @@ export default {
       return normalizeServerUrl(this.url);
     },
     isValid() {
-      // The embedded backend needs no URL — its port exists only at runtime.
-      if (this.kind === BACKEND_EMBEDDED) return true;
+      // The embedded backend needs no URL — its port exists only at runtime —
+      // but can't be saved on a machine that fails the hardware check.
+      if (this.kind === BACKEND_EMBEDDED) return !this.embeddedBlocked;
       return /^https?:\/\/.+/i.test(this.normalized);
+    },
+    // The hardware verdict for the embedded backend (pure; re-derived from the
+    // probed capabilities + what a model download would still fetch).
+    embeddedCapability() {
+      return evaluateEmbeddedCapability(this.capabilities, {
+        neededBytes: this.downloadPlanBytes || 0,
+      });
+    },
+    // "Blocked" only once we've actually probed — never disable optimistically.
+    embeddedBlocked() {
+      return !!this.capabilities && !this.embeddedCapability.supported;
+    },
+    embeddedRequirementsText() {
+      const parts = [];
+      if (this.downloadPlanBytes) {
+        parts.push(t('~{{size}} download', { size: formatGB(this.downloadPlanBytes) }));
+      }
+      parts.push(t('Apple Silicon Mac or 64-bit Windows'));
+      parts.push(t('8 GB RAM recommended'));
+      return parts.join(' · ');
+    },
+    capabilityRows() {
+      if (!this.capabilities) return [];
+      const { checks } = this.embeddedCapability;
+      return [
+        {
+          key: 'system', status: checks.system.status, label: t('System'), detail: this.systemDetail(checks.system),
+        },
+        {
+          key: 'disk', status: checks.disk.status, label: t('Storage'), detail: this.diskDetail(checks.disk),
+        },
+        {
+          key: 'ram', status: checks.ram.status, label: t('Memory'), detail: this.ramDetail(checks.ram),
+        },
+        {
+          key: 'gpu', status: checks.gpu.status, label: t('Graphics'), detail: this.gpuDetail(checks.gpu),
+        },
+      ];
+    },
+    embeddedBlockedText() {
+      const { checks } = this.embeddedCapability;
+      if (checks.system && checks.system.status === 'blocked') {
+        // eslint-disable-next-line max-len
+        return t('This computer can’t run the embedded backend — it needs an Apple Silicon Mac or a 64-bit Windows PC. Choose a hosted server instead.');
+      }
+      if (checks.disk && checks.disk.status === 'blocked') {
+        // eslint-disable-next-line max-len
+        return t('Not enough free disk space for the model download. Free up space, or choose a hosted server.');
+      }
+      return '';
     },
     embeddedDotClass() {
       const state = this.sidecarStatus && this.sidecarStatus.state;
@@ -299,11 +412,12 @@ export default {
       if (visible) {
         // Re-seed from the latest known value each time the dialog opens.
         const backend = coerceServerBackend(this.initialBackend);
-        this.kind = backend ? backend.kind : BACKEND_HOSTED;
+        this.kind = defaultBackendKind(backend, this.firstRun);
         this.url = (backend && backend.baseUrl) || DEFAULT_SERVER_URL;
         this.resetTest();
         this.refreshSidecarStatus();
         this.refreshDownloadPlan();
+        this.loadCapabilities();
         this.$nextTick(() => {
           if (this.$refs.urlInput) this.$refs.urlInput.focus();
         });
@@ -316,10 +430,14 @@ export default {
       if (value === BACKEND_EMBEDDED) {
         this.refreshSidecarStatus();
         this.refreshDownloadPlan();
+        this.loadCapabilities();
       }
     },
   },
   mounted() {
+    // Probe the machine once up front so the hardware verdict is ready the
+    // instant embedded is shown (specs don't change within a session).
+    this.loadCapabilities();
     // The modal stays mounted for the app's lifetime; keep its status live.
     this.unsubscribeSidecar = onSidecarStatus((status) => {
       this.sidecarStatus = status;
@@ -346,6 +464,60 @@ export default {
       getSidecarStatus()
         .then((status) => updateSidecarStatus(status))
         .catch(() => {});
+    },
+    loadCapabilities() {
+      // Machine specs are fixed for the session — probe once and cache.
+      if (this.capabilities) return;
+      getSystemCapabilities()
+        .then((caps) => {
+          this.capabilities = caps || null;
+          // If we optimistically defaulted to embedded but this machine can't
+          // run it, fall back to hosted so the user isn't stuck on a disabled
+          // option with a disabled Save button.
+          if (this.kind === BACKEND_EMBEDDED && this.embeddedBlocked) {
+            this.kind = BACKEND_HOSTED;
+          }
+        })
+        .catch(() => { this.capabilities = null; });
+    },
+    capIconSymbol(status) {
+      return {
+        ok: '✓', warn: '!', blocked: '✕', info: 'ℹ', unknown: '–',
+      }[status] || '–';
+    },
+    humanPlatform(platform) {
+      if (platform === 'darwin') return t('macOS');
+      if (platform === 'win32') return t('Windows');
+      if (platform === 'linux') return t('Linux');
+      return platform || t('Unknown');
+    },
+    systemDetail(check) {
+      if (check.status === 'ok') {
+        return t('{{os}} · supported', { os: this.humanPlatform(check.platform) });
+      }
+      return t('{{os}} ({{arch}}) · not supported', {
+        os: this.humanPlatform(check.platform),
+        arch: check.arch || '?',
+      });
+    },
+    diskDetail(check) {
+      if (check.status === 'unknown') return t('Could not check free space');
+      const free = formatGB(check.freeBytes);
+      if (check.status === 'ok') return t('{{free}} free', { free });
+      const needed = formatGB(check.neededBytes);
+      if (check.status === 'warn') return t('{{free}} free · {{needed}} needed', { free, needed });
+      return t('Only {{free}} free · {{needed}} needed', { free, needed });
+    },
+    ramDetail(check) {
+      if (check.status === 'unknown') return t('Could not read memory');
+      const total = formatMemGiB(check.totalBytes);
+      if (check.status === 'ok') return t('{{total}} RAM', { total });
+      return t('{{total}} RAM · 8 GB recommended', { total });
+    },
+    gpuDetail(check) {
+      if (check.accelerated === true) return t('Hardware acceleration available');
+      if (check.accelerated === false) return t('No GPU detected · will use the CPU (slower)');
+      return t('Graphics acceleration status unknown');
     },
     refreshDownloadPlan() {
       getModelDownloadPlan()
@@ -423,7 +595,9 @@ export default {
       this.$emit('close');
     },
     onOverlayClick() {
-      // Allow dismissing by clicking outside; on first run this behaves like Skip.
+      // On first run the backend choice is required — clicking the backdrop
+      // must not dismiss it. Afterwards, allow closing.
+      if (this.firstRun) return;
       this.close();
     },
     close() {
@@ -497,18 +671,19 @@ export default {
 
 .server-modal__backend {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.6rem;
   background: #2d2d2d;
   border: 1px solid #4e4e4e;
   border-radius: 4px;
-  padding: 0.55rem 0.75rem;
+  padding: 0.6rem 0.75rem;
   font-size: 0.88rem;
   cursor: pointer;
 
   input {
     accent-color: #9834d3;
-    margin: 0;
+    margin: 0.2rem 0 0 0;
+    flex-shrink: 0;
   }
 
   &--selected {
@@ -521,14 +696,77 @@ export default {
   }
 }
 
+.server-modal__backend-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .server-modal__backend-name {
   color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.server-modal__badge {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  background: #9834d3;
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
 }
 
 .server-modal__backend-desc {
-  color: #898989;
+  color: #a9a9a9;
   font-size: 0.78rem;
-  margin-left: auto;
+  line-height: 1.35;
+}
+
+.server-modal__backend-meta {
+  color: #7c7c7c;
+  font-size: 0.72rem;
+}
+
+.server-modal__caps {
+  background: #2d2d2d;
+  border: 1px solid #4e4e4e;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.server-modal__caps-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.18rem 0;
+  font-size: 0.8rem;
+}
+
+.server-modal__caps-icon {
+  width: 1rem;
+  text-align: center;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+  color: #898989;
+
+  &--ok { color: #5cb85c; }
+  &--warn { color: #e0a640; }
+  &--blocked { color: #d9534f; }
+  &--info { color: #4a90d9; }
+}
+
+.server-modal__caps-name {
+  color: #c5c5c5;
+  width: 68px;
+  flex-shrink: 0;
+}
+
+.server-modal__caps-detail {
+  color: #898989;
 }
 
 .server-modal__input {

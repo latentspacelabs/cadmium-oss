@@ -91,6 +91,13 @@ export function getModelDownloadProgress() {
   return ipcRenderer().invoke('sidecar:models-progress');
 }
 
+// Machine capabilities (arch, platform, RAM, free disk, GPU) for the embedded-
+// backend hardware check. Best-effort: fields the main process couldn't probe
+// come back null and the evaluator treats them as "unknown".
+export function getSystemCapabilities() {
+  return ipcRenderer().invoke('system:capabilities');
+}
+
 // --- Temp files (tracked in the main process for cleanup) ---
 
 export function addTempFile(filePath) {

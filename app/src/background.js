@@ -321,6 +321,43 @@ ipcMain.handle('sidecar:models-progress', () => {
   return modelDownloader ? modelDownloader.getProgress() : { state: 'idle' };
 });
 
+// Machine capabilities for the "can this computer run the embedded backend?"
+// check in the Server Settings modal. Everything is best-effort — any probe
+// that throws just comes back null/undefined and the pure evaluator
+// (util/embedded-capability.js) treats it as "unknown", never a blocker.
+ipcMain.handle('system:capabilities', async () => {
+  // eslint-disable-next-line global-require
+  const os = require('os');
+  let freeDiskBytes = null;
+  try {
+    // eslint-disable-next-line global-require
+    const fs = require('fs');
+    // statfs the userData volume (always exists; the models dir is a child of
+    // it, same filesystem, and may not exist yet on first run). Node 18+.
+    const stat = fs.statfsSync(app.getPath('userData'));
+    freeDiskBytes = stat.bsize * stat.bavail;
+  } catch (e) {
+    freeDiskBytes = null;
+  }
+  let gpu = null;
+  try {
+    // 'complete' includes auxAttributes.glRenderer, which distinguishes a real
+    // GPU from a software rasterizer (SwiftShader/llvmpipe).
+    gpu = await app.getGPUInfo('complete');
+  } catch (e) {
+    gpu = null;
+  }
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    totalMem: os.totalmem(),
+    freeMem: os.freemem(),
+    cpuCount: (os.cpus() || []).length,
+    freeDiskBytes,
+    gpu,
+  };
+});
+
 // called on quit-cadmium
 async function cleanUp() {
   console.log('Starting clean up ...');
