@@ -76,7 +76,11 @@ export async function colorizeFrame({
     references: refs.map((r) => ({
       segMapUri: r.segMapRaw,
       colorImageUri: r.colorRaw,
-      lineImageUri: null,
+      // Send the line frame here too: the embedded sidecar's /preprocess
+      // requires it (every other client and the golden corpus send it), and
+      // the reference palette the goldens were validated against was computed
+      // with the line present. Passing null diverged only in this path.
+      lineImageUri: r.lineRaw,
     })),
     imgReturn: false,
     is_auto_alpha: isAutoAlpha,

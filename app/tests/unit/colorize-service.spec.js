@@ -62,7 +62,7 @@ describe('colorizeFrame', () => {
     expect(result.raw).toBeDefined();
   });
 
-  it('sends the preprocess request as a references[] list (no line image)', async () => {
+  it('sends the preprocess request as a references[] list carrying the line image', async () => {
     raaOnServer.mockResolvedValue({ ref_palette_rgba: PALETTE });
     colorizeOnServer.mockResolvedValue({ target_colors_rgba: [] });
 
@@ -71,7 +71,7 @@ describe('colorizeFrame', () => {
     expect(raaOnServer).toHaveBeenCalledTimes(1);
     const arg = raaOnServer.mock.calls[0][0];
     expect(arg.references).toEqual([
-      { segMapUri: 'refSeg', colorImageUri: 'refColor', lineImageUri: null },
+      { segMapUri: 'refSeg', colorImageUri: 'refColor', lineImageUri: 'refLine' },
     ]);
     expect(arg.imgReturn).toBe(false);
   });
