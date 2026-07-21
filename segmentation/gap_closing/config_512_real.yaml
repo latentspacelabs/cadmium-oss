@@ -1,0 +1,72 @@
+# Gap Closing Training Configuration - 512x512 Real Dataset
+# UDF-Only Prediction: Model predicts UDF, binary lines are derived via thresholding
+# Usage: python train_real.py fit --config config_512_real.yaml
+
+# Model configuration
+model:
+  base_channels: 64
+  dropout: 0.1
+  image_size: 512
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  scheduler_type: plateau
+  scheduler_patience: 10
+  scheduler_factor: 0.5
+  scheduler_warmup_epochs: 10
+  scheduler_max_epochs: 1000
+  # UDF loss weights
+  udf_gap_weight: 1.0
+  udf_gap_grad_weight: 0.0
+  udf_skeleton_weight: 0.1
+  near_zero_threshold: 1.0
+  # Inference
+  udf_threshold: 1.0
+  udf_max_dist: 10
+
+# Data configuration for real dataset
+data:
+  batch_size: 20
+  num_workers: 8
+  pin_memory: true
+  crop_size: 512
+  train_ratio: 0.99
+  augment_prob: 0.5
+  # Gap generation parameters
+  junction_gap_min: 0.05
+  junction_gap_max: 0.7
+  junction_gap_cap: 15
+  corner_gap_min: 0.05
+  corner_gap_max: 0.2
+  corner_gap_cap: 10
+  random_gap_min: 0
+  random_gap_max: 10
+  deduplicate_points: true
+  min_point_distance: 3
+  gap_length_min: 1
+  gap_length_max: 10
+  gap_width: 3
+  min_gap_distance: 10
+  # Augmentation parameters
+  brush_augment_prob: 0.7
+  speckle_prob: 0.1
+  # Focal mask computation
+  line_focal_distance_threshold: 9
+  # UDF normalization
+  udf_max_dist: 10
+
+# Trainer configuration
+trainer:
+  max_epochs: 1000
+  accelerator: auto
+  devices: auto
+  precision: bf16-mixed
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  log_every_n_steps: 50
+  # val_check_interval: 2  
+  check_val_every_n_epoch: 1
+  enable_checkpointing: true
+  enable_progress_bar: true
+  enable_model_summary: true
+  deterministic: false
+

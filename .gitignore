@@ -1,0 +1,42 @@
+# Secrets / local env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data, checkpoints, and outputs — never commit these (download separately)
+data/
+datasets/
+checkpoints/
+models/
+output/
+*.pt
+*.pth
+*.npz
+*.ckpt
+
+# Vectorization scratch output
+colorize/vectorization/vtrace_output/
+
+# Rust sidecar build output
+serving/sidecar/target/
+
+# Misc
+.DS_Store
+cufile.log
+*.swp
+.idea/
+.vscode/

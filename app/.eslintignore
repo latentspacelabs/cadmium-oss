@@ -1,0 +1,3 @@
+# Ignore locale files to preserve key order
+locales/en.json
+locales/ja.json

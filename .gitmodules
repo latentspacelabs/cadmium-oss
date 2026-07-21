@@ -1,0 +1,6 @@
+[submodule "third_party/vtracer"]
+	path = third_party/vtracer
+	url = git@github.com:latentspacelabs/vtracer.git
+[submodule "third_party/visioncortex"]
+	path = third_party/visioncortex
+	url = git@github.com:latentspacelabs/visioncortex.git

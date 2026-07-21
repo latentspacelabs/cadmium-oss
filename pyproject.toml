@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cadmium-oss"
+version = "0.1.0"
+description = "Reference-guided flat-fill colorization for line art (AnT v1/v2)"
+readme = "README.md"
+requires-python = ">=3.10"
+# License is not yet finalized — see README.
+license = { text = "TBD" }
+
+# Core dependencies that install cleanly from PyPI. CUDA-specific packages
+# (torch-scatter, cupy, cucim) are pinned separately in requirements-cuda.txt
+# and must be installed after this.
+#
+# torch/pillow/numpy/scipy/opencv are pinned to the PRODUCTION serving env
+# (verified on the serving box 2026-07-20). The Rust sidecar's byte-exact
+# parity goldens encode these exact versions' semantics (scipy-1.12 EDT/CC,
+# numpy-1.26 pairwise summation, Pillow>=10 alpha-only getbbox, cv2-4.11
+# contours, torch-2.6 CPU kernels) — do not bump them casually.
+dependencies = [
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "transformers==4.46.3",
+    "datasets",
+    "comet-ml==3.47.6",
+    "python-dotenv",
+    "numpy==1.26.4",
+    "scipy==1.12.0",
+    "pillow==11.0.0",
+    "matplotlib==3.9.2",
+    "opencv-python==4.11.0.86",
+    "opencv-python-headless==4.11.0.86",
+    "scikit-image==0.24.0",
+    "scikit-learn",
+    "einops==0.8.0",
+    "kornia==0.7.3",
+    "albumentations==2.0.6",
+    "CairoSVG==2.7.1",
+    "tqdm",
+    # Segmentation: trapped-ball tiling + the ML gap-closing model (GapCloser).
+    "tiler==0.5.7",
+    "pytorch-lightning>=2.0.0",
+    "torchmetrics>=0.11.0",
+    # Prebuilt vectorization wheel (vtracer) used by the SVG pipeline.
+    "vtracer @ https://github.com/latentspacelabs/vtracer/releases/download/cmdapp.2025.2.17/vtracer-0.6.16-cp310-cp310-linux_x86_64.whl",
+]
+
+[project.optional-dependencies]
+modal = ["modal", "fastapi[standard]"]
+serve = ["fastapi[standard]", "uvicorn"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["colorize*", "segmentation*", "serving*"]

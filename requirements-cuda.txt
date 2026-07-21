@@ -1,0 +1,13 @@
+# CUDA-specific dependencies. These are pinned to CUDA 12.1 / torch 2.4.1
+# builds and must be installed AFTER the core deps (pyproject / requirements).
+#
+#   pip install -r requirements-cuda.txt
+#
+# They require an NVIDIA GPU with a matching CUDA runtime. Local inference and
+# training will not work without these (the model image encoder imports
+# torch_scatter at module load time, and segmentation uses cupy/cucim).
+
+--find-links https://data.pyg.org/whl/torch-2.4.1+cu121.html
+torch-scatter==2.1.2+pt24cu121
+cupy-cuda12x==13.3.0
+cucim-cu12==24.10.0

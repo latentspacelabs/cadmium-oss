@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="33px" height="33px" viewBox="0 0 33 33" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 53.2 (72643) - https://sketchapp.com -->
+    <title>question-circle</title>
+    <desc>Created with Sketch.</desc>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Popover-Tests-Copy-6" transform="translate(-1212.000000, -103.000000)" stroke="#FFFFFF" stroke-width="1.5">
+            <g id="Group-12" transform="translate(1148.000000, 103.000000)">
+                <g id="Group-11" transform="translate(57.000000, 0.000000)">
+                    <g id="question-circle" transform="translate(7.000000, 0.000000)">
+                        <g id="Group-9" transform="translate(0.250000, 0.250000)">
+                            <path d="M12.75,12.7496809 C12.7503884,10.7154938 14.2771565,9.00552376 16.298091,8.77584293 C18.3190254,8.54616211 20.1904957,9.86991961 20.6472431,11.8521529 C21.1039905,13.8343862 20.0005493,15.8437904 18.0829313,16.5218529 C17.2835357,16.8045159 16.749254,17.5606161 16.7496985,18.4086055 L16.7496985,19.75" id="Path" stroke-linecap="round" stroke-linejoin="round"></path>
+                            <path d="M16.25,23.875 C16.0428932,23.875 15.875,24.0428932 15.875,24.25 C15.875,24.4571068 16.0428932,24.625 16.25,24.625 C16.4571068,24.625 16.625,24.4571068 16.625,24.25 C16.625,24.0428932 16.4571068,23.875 16.25,23.875 L16.25,23.875" id="Path" stroke-linecap="round" stroke-linejoin="round"></path>
+                            <circle id="Oval" cx="16.25" cy="16.25" r="15.5"></circle>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

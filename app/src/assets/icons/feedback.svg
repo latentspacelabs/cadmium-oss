@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="33px" height="33px" viewBox="0 0 33 33" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 53.2 (72643) - https://sketchapp.com -->
+    <title>Group 8</title>
+    <desc>Created with Sketch.</desc>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Popover-Tests-Copy-6" transform="translate(-1268.000000, -103.000000)" stroke="#FFFFFF" stroke-width="1.5">
+            <g id="Group-8" transform="translate(1268.000000, 103.250000)">
+                <g id="Group-9">
+                    <circle id="Oval" cx="16.25" cy="16.25" r="15.5"></circle>
+                </g>
+                <g id="messages-people-person-bubble-circle-1" transform="translate(6.000000, 5.750000)" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17,0.75 L17.0000003,0.750000002 C14.1143503,0.735992102 11.7637103,3.06392 11.7497003,5.94957 C11.7434622,7.23464 12.2110203,8.47693 13.0630003,9.439 L12.4060003,13.219 L15.8290003,11.108 L15.8290002,11.108 C18.6522802,11.758648 21.4684602,9.99737998 22.1191102,7.17409998 C22.7697582,4.35081998 21.0084902,1.53463998 18.1852102,0.883989984 C17.7965212,0.794413584 17.3988842,0.749459984 17.0000102,0.749999984 L17,0.75 Z" id="Path"></path>
+                    <path d="M8.13649,10.7385 C9.45451,12.05652 9.45451,14.19345 8.13649,15.51147 C6.81847,16.82949 4.68154,16.82949 3.36352,15.51147 C2.0455,14.19345 2.0455,12.05652 3.36352,10.7385 C4.68154,9.42048 6.81847,9.42048 8.13649,10.7385" id="Path"></path>
+                    <path d="M11.7496387,25 C11.5,20.0521671 8.25692004,17.6112103 4.94321004,18.0567903 C2.23990004,18.4202923 0.593430057,19.5762041 0.229920057,22.2795141" id="Path"></path>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

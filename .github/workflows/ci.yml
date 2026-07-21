@@ -1,0 +1,218 @@
+# CI: sidecar tests + app tests on every push/PR, packaged mac/win builds
+# with the bundled sidecar as uploadable artifacts.
+#
+# Prerequisites (first run after the repo lands on GitHub):
+#   - The submodules third_party/vtracer and third_party/visioncortex must be
+#     pushed to github.com/latentspacelabs and readable with this repo's
+#     GITHUB_TOKEN (public, or same-org private with access). actions/checkout
+#     rewrites the git@github.com: submodule URLs to token-authenticated https.
+#
+# Signing/notarization is driven entirely by repo secrets (Settings ->
+# Secrets and variables -> Actions). With no secrets configured, packaging
+# still succeeds and produces UNSIGNED artifacts (mac: ad-hoc signature with
+# the hardened runtime off — runs on a dev machine, not distributable;
+# win: unsigned installer).
+#   mac sign:    CSC_LINK (base64 .p12 export of the Developer ID Application
+#                cert+key), CSC_KEY_PASSWORD (consumed by electron-builder)
+#   mac notarize: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+#                (consumed by app/notarize.js; skipped when unset)
+#   win sign:    SSL.com eSigner (remote signing; the cert never leaves
+#                SSL.com's HSM). The job installs eSigner CKA, which exposes
+#                the cloud cert in the runner's certificate store, and hands
+#                electron-builder its thumbprint. Secrets: ES_USERNAME,
+#                ES_PASSWORD, ES_TOTP_SECRET (the eSigner OTP seed, needed
+#                for non-interactive signing), and optionally ES_CREDENTIAL_ID
+#                (only if the account holds more than one signing credential).
+#
+# Not yet in CI: the verify_* golden harnesses (the multi-GB golden dirs have
+# no durable home yet) and EP runtime checks (CoreML/DirectML need real
+# hardware). CPU-only `cargo test` covers the ported algorithms.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sidecar-test:
+    name: sidecar tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serving/sidecar
+          shared-key: sidecar
+      - name: cargo test
+        working-directory: serving/sidecar
+        run: cargo test --release
+
+  app-test:
+    name: app unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: npm ci
+        working-directory: app
+        run: npm ci
+      - name: jest
+        working-directory: app
+        run: npx jest
+
+  package-mac:
+    name: package mac (arm64)
+    needs: [sidecar-test, app-test]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serving/sidecar
+          shared-key: sidecar
+      - name: Build sidecar (release)
+        working-directory: serving/sidecar
+        run: cargo build --release --bin cadmium-sidecar
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: npm ci
+        working-directory: app
+        run: npm ci
+      - name: Package
+        working-directory: app
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "No CSC_LINK secret - producing an unsigned build"
+            export CADMIUM_UNSIGNED_LOCAL_BUILD=1
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npm run electron:build -- --mac --arm64 --publish never
+      # *.yml = electron-updater feed metadata (latest-mac.yml), needed as a
+      # release asset for in-app updates.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cadmium-mac-arm64
+          retention-days: 7
+          path: |
+            app/dist_electron/*.dmg
+            app/dist_electron/*.zip
+            app/dist_electron/*.yml
+          if-no-files-found: error
+
+  package-win:
+    name: package windows (x64)
+    needs: [sidecar-test, app-test]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serving/sidecar
+          shared-key: sidecar
+      # Explicit --target so the binary lands where vue.config.js
+      # extraResources expects it (target/x86_64-pc-windows-msvc/release/).
+      - name: Build sidecar (release, x64 MSVC)
+        working-directory: serving/sidecar
+        run: cargo build --release --bin cadmium-sidecar --target x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: npm ci
+        working-directory: app
+        run: npm ci
+      # SSL.com eSigner CKA (documented flow: install silently, configure
+      # with account credentials + TOTP seed, load the cert into the store,
+      # then read its thumbprint). Skipped when the secrets are absent —
+      # the package step then produces an unsigned installer.
+      - name: Load SSL.com eSigner cert
+        if: ${{ secrets.ES_USERNAME != '' }}
+        shell: powershell
+        env:
+          ES_USERNAME: ${{ secrets.ES_USERNAME }}
+          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+          ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
+        run: |
+          Invoke-WebRequest -OutFile eSigner_CKA_Setup.exe "https://www.ssl.com/download/ssl-com-esigner-cka/"
+          New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
+          Start-Process .\eSigner_CKA_Setup.exe -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
+          C:\esigner\eSignerCKA.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
+          C:\esigner\eSignerCKA.exe unload
+          C:\esigner\eSignerCKA.exe load
+          $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+          if (-not $cert) { throw "eSigner CKA loaded no code-signing cert" }
+          echo "CADMIUM_WIN_SIGN_SHA1=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+      # win-node-env (a dependency) makes the NODE_ENV=... script prefix work
+      # under cmd.exe, so the same npm script runs on Windows unchanged.
+      # CADMIUM_WIN_SIGN_SHA1 (set by the step above, or absent) is picked up
+      # by vue.config.js builderOptions.
+      - name: Package
+        working-directory: app
+        shell: bash
+        run: npm run electron:build -- --win --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cadmium-win-x64
+          retention-days: 7
+          path: |
+            app/dist_electron/*.exe
+            app/dist_electron/*.blockmap
+            app/dist_electron/*.yml
+          if-no-files-found: error
+
+  # Pushing a v* tag runs the full pipeline above, then drafts a GitHub
+  # Release on this repo with the packaged builds attached. Draft on
+  # purpose: review, write notes, hit publish. electron-updater only sees
+  # published releases (its feed is the publish config in
+  # electron-builder.json). Unsigned builds ship if signing secrets are
+  # absent. Model artifacts live on a separate, hand-managed release —
+  # see serving/tools/upload_models_release.sh.
+  release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package-mac, package-win]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: artifacts/*

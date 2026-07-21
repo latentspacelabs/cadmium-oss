@@ -1,0 +1,74 @@
+[package]
+name = "cadmium-sidecar"
+version = "0.1.0"
+edition = "2021"
+description = "Rust sidecar serving the Cadmium ML HTTP contract (serving-backends R1 skeleton)"
+license = "MIT"
+publish = false
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+# pyke onnxruntime bindings. Prerelease, so the version is pinned exactly.
+# Default features include `download-binaries` (fetches prebuilt ONNX Runtime
+# for the host target, incl. macOS arm64), `ndarray`, `copy-dylibs`, and
+# `tls-native`. Accelerated EPs are enabled per-target below.
+ort = "=2.0.0-rc.12"
+# PNG decoding for the verify_segment golden harness (line.png inputs) and
+# the serving handlers' data-URI codecs.
+png = "0.17"
+# base64 data-URI (de)serialization for the HTTP contract (standard for
+# /segment + /colorize, URL-safe for /preprocess inputs — mirroring
+# segmentation/trapped_ball/serialization.py).
+base64 = "0.22"
+# In-process router driving for the verify_http golden harness
+# (tower::ServiceExt::oneshot + body collection).
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+# Raw-deflate inflate for np.savez_compressed golden bundles (already in the
+# tree transitively via png/fdeflate).
+miniz_oxide = "0.8"
+# The production vectorizer: the vendored vtracer fork (the same crate the
+# vtracer-0.6.16 wheel wraps; its Display output is the golden SVG string).
+# Used by verify_imageprep to replay `vtrace.py::vectorize`.
+vtracer = { path = "../../third_party/vtracer/cmdapp" }
+
+# Per-target EP registration features. These only compile the registration
+# call into `ort` — the pyke prebuilt binaries for Apple targets already ship
+# the CoreML EP (the `coreml` feature does not change which binary is
+# downloaded), and the Windows binaries ship DirectML. Keeping them
+# target-specific keeps the mac build free of DML code and vice versa.
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.12", features = ["coreml"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.12", features = ["directml"] }
+
+[[bin]]
+name = "verify_segment"
+path = "src/bin/verify_segment.rs"
+
+[[bin]]
+name = "verify_gapclose"
+path = "src/bin/verify_gapclose.rs"
+
+[[bin]]
+name = "verify_tokenize"
+path = "src/bin/verify_tokenize.rs"
+
+[[bin]]
+name = "verify_imageprep"
+path = "src/bin/verify_imageprep.rs"
+
+[[bin]]
+name = "verify_postprocess"
+path = "src/bin/verify_postprocess.rs"
+
+[[bin]]
+name = "verify_http"
+path = "src/bin/verify_http.rs"

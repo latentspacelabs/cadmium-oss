@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 16.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" id="Layer_1" xmlns:svgjs="http://svgjs.com/svgjs"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="24px" height="24px"
+	 viewBox="0 0 24 24" style="enable-background:new 0 0 24 24;" xml:space="preserve">
+<style type="text/css">
+<![CDATA[
+	.st0{fill:#FFFFFF;stroke:#000000;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
+]]>
+</style>
+<title>hand drag (From Streamline App : https://app.streamlineicons.com)</title>
+<g transform="matrix(1,0,0,1,0,0)">
+	<path class="st0" d="M16.5,6.747v-1.5c0-0.828-0.672-1.5-1.5-1.5s-1.5,0.672-1.5,1.5V4.5C13.5,3.672,12.828,3,12,3
+		s-1.5,0.672-1.5,1.5v0.75c0-0.828-0.672-1.5-1.5-1.5s-1.5,0.672-1.5,1.5v5.25c-1.657,0-3,1.343-3,3
+		c0,1.463,0.457,2.891,1.308,4.081l1.1,1.535c0.844,1.181,2.206,1.883,3.658,1.884h3.813c2.828,0,5.121-2.293,5.121-5.121
+		c0-0.001,0-0.002,0-0.003V6.747c0-0.828-0.672-1.5-1.5-1.5S16.5,5.919,16.5,6.747z"/>
+	<path class="st0" d="M7.5,10.497v2.25"/>
+	<path class="st0" d="M10.5,8.997v-3.75"/>
+	<path class="st0" d="M13.5,8.997v-3.75"/>
+	<path class="st0" d="M16.5,8.997v-2.25"/>
+</g>
+</svg>

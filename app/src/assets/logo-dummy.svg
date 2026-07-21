@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="107px" height="41px" viewBox="0 0 107 41" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <!-- Generator: Sketch 53.2 (72643) - https://sketchapp.com -->
+    <title>Group 7</title>
+    <desc>Created with Sketch.</desc>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Popover-Tests-Copy-6" transform="translate(-132.000000, -110.000000)">
+            <g id="Group-7" transform="translate(132.000000, 110.000000)">
+                <rect id="Rectangle" fill="#A241FD" x="96" y="0" width="1" height="1"></rect>
+                <rect id="Rectangle" fill="#A241FD" x="106" y="11" width="1" height="1"></rect>
+                <circle id="Oval" stroke="#A241FD" cx="15" cy="20" r="14.5"></circle>
+                <rect id="Rectangle" fill="#393939" x="9" y="11" width="94" height="17"></rect>
+                <text id="CADMIUM" fill="#FFFFFF" font-family="Inter-Regular, Inter" font-size="17" font-weight="normal" letter-spacing="0.800000012">
+                    <tspan x="9" y="26">CADMIU</tspan>
+                    <tspan x="82.4761364" y="26">M</tspan>
+                </text>
+                <g id="Group-13" transform="translate(97.000000, 2.000000)" fill="#A241FD">
+                    <rect id="Rectangle" x="4" y="3" width="1" height="5"></rect>
+                    <rect id="Rectangle" x="4" y="0" width="1" height="1"></rect>
+                    <rect id="Rectangle" x="8" y="5" width="1" height="1"></rect>
+                    <rect id="Rectangle" x="0" y="5" width="1" height="1"></rect>
+                    <rect id="Rectangle" x="4" y="10" width="1" height="1"></rect>
+                    <rect id="Rectangle" x="2" y="5" width="5" height="1"></rect>
+                </g>
+                <text id="beta" opacity="0.522739955" font-family="Inter-LightItalicBETA, Inter" font-size="11" font-style="italic" font-weight="300" letter-spacing="0.6769231" fill="#FFFFFF">
+                    <tspan x="43.0445913" y="40">beta</tspan>
+                </text>
+            </g>
+        </g>
+    </g>
+</svg>

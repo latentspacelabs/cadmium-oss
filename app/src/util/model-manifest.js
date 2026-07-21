@@ -1,0 +1,55 @@
+/* eslint-disable */
+/**
+ * Single source of truth for the embedded backend's model artifacts: what
+ * files exist, how big they are, and how to verify them.
+ *
+ * The artifacts are hosted as assets of the hand-managed `models-v1` GitHub
+ * Release (created by serving/tools/upload_models_release.sh — which verifies
+ * uploads against this manifest). The model download/bootstrap flow resolves
+ * files against MODELS_BASE_URL and checks sha256 after download. Filenames
+ * must match what sidecar-core.js passes to the sidecar (MODEL_ANT etc.).
+ *
+ * CommonJS on purpose: loaded both by the app (webpack) and by plain-node
+ * tooling (the upload script).
+ *
+ * Bumping models = new release tag + new hashes here, in one commit, so an
+ * app version always pins the exact artifacts it was validated against
+ * (the parity goldens are anchored to these bytes).
+ */
+
+const MODELS_RELEASE_TAG = 'models-v1';
+const MODELS_BASE_URL =
+  `https://github.com/latentspacelabs/cadmium-oss/releases/download/${MODELS_RELEASE_TAG}`;
+
+const MODEL_FILES = [
+  {
+    // AnT colorizer, dynamic shapes. The workhorse: every EP can run it.
+    file: 'ant_v2_fp32.onnx',
+    bytes: 1388610539,
+    sha256: '6c8d95cbfa62408f3cbfbbc29204fac7df5a587466dbb751e7e1b0bb530ff12b',
+    required: true,
+  },
+  {
+    // AnT colorizer with bucket-pinned shapes — the CoreML fast path
+    // (--ant-model-bucket). Optional: without it the sidecar still serves
+    // every request via the dynamic model.
+    file: 'ant_v2_fp32_bucket.onnx',
+    bytes: 1388609892,
+    sha256: '42b3cfd3bcfd23beef9ef4eea282127145a3bd177dca533bd6d5ccd51b4b3275',
+    required: false,
+  },
+  {
+    // GapCloser, fp32 (fp16 exists for DirectML but fp32 is the parity
+    // anchor: 0 boundary flips vs torch-CUDA on all golden drawings).
+    file: 'gap_closer_fp32.onnx',
+    bytes: 497500380,
+    sha256: '3a9a792f72fd3451c36145a0657328e333d6e5e982f0760b5e5a6e7e9934d327',
+    required: true,
+  },
+];
+
+function modelUrl(file) {
+  return `${MODELS_BASE_URL}/${file}`;
+}
+
+module.exports = { MODELS_RELEASE_TAG, MODELS_BASE_URL, MODEL_FILES, modelUrl };
