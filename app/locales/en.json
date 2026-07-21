@@ -281,5 +281,14 @@
 	"Empty Palette": "Empty Palette",
 	"There are no colors in the palette to export separately.": "There are no colors in the palette to export separately.",
 	"Operation in Progress": "Operation in Progress",
-	"Another operation is still running. Wait for it to finish (or cancel it) and try again.": "Another operation is still running. Wait for it to finish (or cancel it) and try again."
+	"Another operation is still running. Wait for it to finish (or cancel it) and try again.": "Another operation is still running. Wait for it to finish (or cancel it) and try again.",
+	"Pause (Return)": "Pause (Return)",
+	"Cannot colorize frame ": "Cannot colorize frame ",
+	", because reference line frame does not exist.": ", because reference line frame does not exist.",
+	"Sorry we could not color frame ": "Sorry we could not color frame ",
+	" because you are missing a line frame.": " because you are missing a line frame.",
+	"Sorry we could not analyze frame ": "Sorry we could not analyze frame ",
+	"Sorry Cadmium can't analyze or colorize this frame, there are too many segments. Maybe try adjusting your analyze settings.": "Sorry Cadmium can't analyze or colorize this frame, there are too many segments. Maybe try adjusting your analyze settings.",
+	"Yikes! Frame ": "Yikes! Frame ",
+	" could not be colorized. We will be working on a fix as soon as possible": " could not be colorized. We will be working on a fix as soon as possible"
 }
