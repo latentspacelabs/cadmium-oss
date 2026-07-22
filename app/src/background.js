@@ -342,8 +342,12 @@ ipcMain.handle('system:capabilities', async () => {
   let gpu = null;
   try {
     // 'complete' includes auxAttributes.glRenderer, which distinguishes a real
-    // GPU from a software rasterizer (SwiftShader/llvmpipe).
-    gpu = await app.getGPUInfo('complete');
+    // GPU from a software rasterizer (SwiftShader/llvmpipe). It can hang on a
+    // wedged GPU process, so cap it — a null result is treated as "unknown"
+    // (never a blocker), so a slow probe must never stall the whole check.
+    const gpuInfo = app.getGPUInfo('complete');
+    const timeout = new Promise((resolve) => { setTimeout(() => resolve(null), 3000); });
+    gpu = await Promise.race([gpuInfo, timeout]);
   } catch (e) {
     gpu = null;
   }

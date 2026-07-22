@@ -581,12 +581,23 @@ export default {
       // Persist through the main process (single writer of user-preferences).
       setPref(SERVER_BACKEND_PREF_KEY, backend);
       if (this.kind === BACKEND_EMBEDDED) {
-        // Choosing embedded is a first use — warm the sidecar up now so the
-        // first colorize doesn't pay the spawn latency. Fire-and-forget;
-        // progress arrives via the status pushes.
-        ensureSidecar()
-          .then((status) => updateSidecarStatus(status))
-          .catch(() => {});
+        const needsDownload = this.missingModels.length > 0
+          || (typeof this.downloadPlanBytes === 'number' && this.downloadPlanBytes > 0);
+        if (needsDownload) {
+          // Choosing embedded is the moment to fetch the one-time model
+          // download this dialog advertised — without it the sidecar has no
+          // models to serve. Don't ensureSidecar() here (it would only flap to
+          // "failed: missing"); the main process re-ensures the sidecar once
+          // the download completes. Progress arrives via the status pushes and
+          // is visible on reopening Server Settings.
+          this.startDownload();
+        } else {
+          // Models already present — warm the sidecar now so the first
+          // colorize doesn't pay the spawn latency. Fire-and-forget.
+          ensureSidecar()
+            .then((status) => updateSidecarStatus(status))
+            .catch(() => {});
+        }
       } else {
         // Don't keep an app-managed sidecar running for a hosted backend.
         stopSidecar().catch(() => {});

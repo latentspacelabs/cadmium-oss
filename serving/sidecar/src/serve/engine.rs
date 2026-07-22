@@ -33,7 +33,7 @@
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -134,6 +134,11 @@ pub struct Engine {
     gap: Mutex<Option<Session>>,
     /// Batch-pinned GapCloser model on the CoreML EP (batched tiles).
     gap_coreml: Mutex<Option<Session>>,
+    /// Latched once the CoreML gap build fails (prewarm or lazy): the compile
+    /// won't succeed on a retry with the same model+machine, so every later
+    /// `/segment` skips straight to the CPU EP instead of re-paying the failed
+    /// build. Never reset for the process's life.
+    gap_coreml_failed: AtomicBool,
     /// The non-CoreML AnT session: the dynamic model on the CPU EP, or (when
     /// `ant_ep` is Dml) the tiled model on DirectML — with a lazy fallback to
     /// the dynamic model on the CPU EP if DirectML can't initialize.
@@ -302,6 +307,7 @@ impl Engine {
             gap_ep,
             gap: Mutex::new(None),
             gap_coreml: Mutex::new(None),
+            gap_coreml_failed: AtomicBool::new(false),
             ant: Mutex::new(None),
             ant_bucket: Mutex::new(None),
             ant_bucket_gate: AtomicU8::new(GATE_IDLE),
@@ -320,6 +326,17 @@ impl Engine {
         if !coreml_wanted {
             return;
         }
+        // Claim the AnT bucket gate now, on the caller's thread (process start,
+        // before the server accepts connections). If we spawned first and CAS'd
+        // inside the thread, a `/colorize` arriving during the gap build (~3s)
+        // would find the gate still IDLE and either block behind — or race into
+        // a *second* — the ~107s inline compile. Flipping to BUILDING up front
+        // means such a request serves from the CPU session instead.
+        let build_ant = self.ant_ep == AntEp::CoreMlBucket
+            && self
+                .ant_bucket_gate
+                .compare_exchange(GATE_IDLE, GATE_BUILDING, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok();
         let engine = Arc::clone(self);
         std::thread::spawn(move || {
             if engine.gap_ep == GapEp::CoreMl {
@@ -333,19 +350,17 @@ impl Engine {
                             engine.coreml_cache_dir.as_deref(),
                         ) {
                             Ok(session) => *guard = Some(session),
-                            // Not fatal: run_gap_coreml retries lazily and
-                            // falls back to the CPU EP per request.
-                            Err(e) => tracing::warn!(error = %e, "GapCloser prewarm failed"),
+                            // The same compile won't succeed on a lazy retry;
+                            // latch it so every /segment goes straight to CPU.
+                            Err(e) => {
+                                engine.gap_coreml_failed.store(true, Ordering::SeqCst);
+                                tracing::warn!(error = %e, "GapCloser prewarm failed; using the CPU EP");
+                            }
                         }
                     }
                 }
             }
-            if engine.ant_ep == AntEp::CoreMlBucket
-                && engine
-                    .ant_bucket_gate
-                    .compare_exchange(GATE_IDLE, GATE_BUILDING, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            {
+            if build_ant {
                 let gate = match engine.build_ant_bucket_state() {
                     Ok(state) => {
                         if let Ok(mut guard) = engine.ant_bucket.lock() {
@@ -405,7 +420,7 @@ impl Engine {
     /// On the CoreML plan tiles are forwarded in fixed batches; a CoreML
     /// build/init error falls back to the CPU EP.
     pub fn run_gap_udfs(&self, tiles: &[PlaneF32]) -> Result<Option<Vec<Vec<f32>>>, String> {
-        if self.gap_ep == GapEp::CoreMl {
+        if self.gap_ep == GapEp::CoreMl && !self.gap_coreml_failed.load(Ordering::SeqCst) {
             match self.run_gap_coreml(tiles) {
                 Ok(udfs) => return Ok(Some(udfs)),
                 Err(e) => tracing::warn!(
@@ -447,11 +462,15 @@ impl Engine {
         };
         let mut guard = self.gap_coreml.lock().map_err(|_| "gap coreml session poisoned")?;
         if guard.is_none() {
-            *guard = Some(build_coreml_session(
-                "GapCloser bucket",
-                path,
-                self.coreml_cache_dir.as_deref(),
-            )?);
+            match build_coreml_session("GapCloser bucket", path, self.coreml_cache_dir.as_deref()) {
+                Ok(session) => *guard = Some(session),
+                Err(e) => {
+                    // Latch the build failure so run_gap_udfs stops retrying a
+                    // compile that can't succeed and serves from the CPU EP.
+                    self.gap_coreml_failed.store(true, Ordering::SeqCst);
+                    return Err(e);
+                }
+            }
         }
         let session = guard.as_mut().unwrap();
         let tile_len = TILE_SIZE * TILE_SIZE;
@@ -510,7 +529,21 @@ impl Engine {
                     _ => {}
                 }
                 match pad_feed_to_bucket(feed, &CORPUS_BUCKET) {
-                    Ok(padded) => self.run_ant_bucket(&padded),
+                    // A bucket build/forward failure (bad compile, CoreML
+                    // runtime error) must not fail the request — the dynamic
+                    // CPU session produces the same argmax. run_ant_bucket has
+                    // already latched the gate to FAILED on a build error, so
+                    // later requests skip straight here.
+                    Ok(padded) => match self.run_ant_bucket(&padded) {
+                        Ok(out) => Ok(out),
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "CoreML bucket forward failed; falling back to the dynamic CPU session"
+                            );
+                            self.run_ant_dynamic(feed)
+                        }
+                    },
                     Err(why) => {
                         tracing::warn!(
                             %why,
