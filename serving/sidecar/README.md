@@ -115,12 +115,12 @@ additionally checks the `pad_feed_to_bucket` port when given
 
 ## Execution providers
 
-EP selection applies to the **AnT `/colorize` forward** only (the GapCloser
-stays on the CPU EP; moving it is a follow-up):
+EP selection applies to the AnT `/colorize` forward and (on macOS, when
+`--gap-model-bucket` is supplied) the GapCloser `/segment` forward:
 
-- `cpu` — dynamic AnT model, CPU EP. The golden-gate baseline.
-- `coreml` (macOS) — the CORPUS_BUCKET-pinned model (`--ant-model-bucket`,
-  slots 32 / rows 16 / cmds 256 / flat 2048 / length 64) on the CoreML EP,
+- `cpu` — dynamic models, CPU EP. The golden-gate baseline.
+- `coreml` (macOS) — the CORPUS_BUCKET-pinned AnT model (`--ant-model-bucket`,
+  slots 256 / rows 64 / cmds 256 / flat 8192 / length 512) on the CoreML EP,
   MLProgram format, compute units ALL. Every feed is bucket-padded
   (`src/tokenize/bucket.rs`) so ONE static shape → ONE CoreML compile serves
   the whole corpus; a feed that exceeds the bucket falls back to a

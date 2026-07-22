@@ -1,7 +1,6 @@
 from typing import *
 from dataclasses import dataclass
 
-import comet_ml
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -240,16 +239,6 @@ class AnTV1Model(AnTV1PreTrainedModel):
                     dift_loss = _dift_loss * self.dift_weight
                 else:
                     dift_loss = torch.tensor(0.)
-
-                self._log_additional_metrics(
-                    fwd_loss,
-                    bkwd_loss,
-                    dift_loss,
-                    target_color_id_predictions=target_color_id_predictions,
-                    target_color_ids=target_color_ids,
-                    bkwd_id_predictions=_bkwd_id_predictions,
-                    bkwd_pos_ids=_ref_pos_ids_for_loss,
-                )
 
                 loss = fwd_loss + bkwd_loss + dift_loss
 
@@ -492,50 +481,3 @@ class AnTV1Model(AnTV1PreTrainedModel):
             )[0]
 
             return llama_out
-        
-    def _log_additional_metrics(
-        self,
-        fwd_loss: torch.Tensor,
-        bkwd_loss: torch.Tensor,
-        dift_loss: torch.Tensor,
-        target_color_id_predictions: torch.Tensor,
-        target_color_ids: torch.Tensor,
-        bkwd_id_predictions: Optional[torch.Tensor] = None,
-        bkwd_pos_ids: Optional[torch.Tensor] = None,
-        **kwargs,
-    ):
-        experiment = comet_ml.get_global_experiment()
-
-        if experiment:
-            experiment.log_metric("fwd_loss", fwd_loss.item())
-            experiment.log_metric("bkwd_loss", bkwd_loss.item())
-            experiment.log_metric("dift_loss", dift_loss.item())
-
-            fwd_acc = []
-            bkwd_acc = []
-
-            for idx in range(len(target_color_id_predictions)):
-                fwd_target_active_mask = (target_color_ids[idx] != -100) & (target_color_id_predictions[idx] != -100)
-                fwd_active_preds = target_color_id_predictions[idx][fwd_target_active_mask]
-                fwd_active_targets = target_color_ids[idx][fwd_target_active_mask]
-
-                if len(fwd_target_active_mask) == 0:
-                     print("NO ACTIVE SEGMENTS")
-                     continue
-
-                _fwd_acc = torch.sum(fwd_active_preds == fwd_active_targets) / len(fwd_active_preds)
-                fwd_acc.append(_fwd_acc.item())
-
-                if bkwd_id_predictions is not None and bkwd_pos_ids is not None:
-                    bkwd_target_active_mask = bkwd_pos_ids[idx] != -100
-                    bkwd_active_preds = bkwd_id_predictions[idx][bkwd_target_active_mask]
-                    bkwd_active_targets = bkwd_pos_ids[idx][bkwd_target_active_mask]
-
-                    _bkwd_acc = torch.sum(bkwd_active_preds == bkwd_active_targets) / len(bkwd_active_preds)
-                    bkwd_acc.append(_bkwd_acc.item())
-                else:
-                    bkwd_acc.append(0)
-
-            experiment.log_metric("fwd_acc", sum(fwd_acc) / len(fwd_acc))
-            experiment.log_metric("bkwd_acc", sum(bkwd_acc) / len(bkwd_acc))
-

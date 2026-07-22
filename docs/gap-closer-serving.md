@@ -2,7 +2,7 @@
 
 How the ML gap-closing model runs at inference time, in both the Python
 server and the Rust sidecar. Training is covered in
-`docs/gap-closer-training.md`; the classical segmentation it feeds is in
+outside this repo (training code is not included); the classical segmentation it feeds is in
 `docs/segmentation.md`.
 
 ## Motivation

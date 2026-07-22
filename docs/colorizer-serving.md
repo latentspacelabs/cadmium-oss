@@ -1,7 +1,7 @@
 # Colorizer (AnT v2) — serving & tokenization
 
 How a colorize request becomes per-segment colors, and how the pipeline runs
-without Python. Training is covered in `docs/colorizer-training.md`;
+without Python. Training code is not part of this repo;
 segmentation in `docs/segmentation.md`.
 
 ## Motivation
@@ -53,7 +53,7 @@ already uses. The hosted path stays the reference implementation.
   end, so RoPE positions of real tokens never move.
 
 **Shape bucketing (CoreML needs static shapes):** `CORPUS_BUCKET`
-(slots 32 / rows 16 / cmds 256 / flat 2048 / length 64) covers the corpus with
+(slots 256 / rows 64 / cmds 256 / flat 8192 / length 512) covers real drawings with
 one shape; `pad_feed_to_bucket` pads any feed into it. A bucket-pinned copy
 of the .onnx compiles ONCE and serves every request; outputs are sliced at
 `[n_ref .. n_ref+n_tgt)`.

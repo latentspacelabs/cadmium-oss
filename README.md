@@ -38,17 +38,16 @@ assigned a color. See `colorize/ant_v2/` for the model, tokenizer, and pipeline.
 
 ```
 app/              # the Cadmium desktop app (Electron + Vue) — see app/README.md
-colorize/
-  ant_v1/         # AnT v1 model, tokenizer, pipeline, metrics
+colorize/         # inference-only model code (training lives outside this repo)
+  ant_v1/         # AnT v1 model, tokenizer, pipeline
   ant_v2/         # AnT v2 model, tokenizer, pipeline (recommended)
   common/         # frames, sequences, image ops, color extraction
-  datasets/       # frame-pair datamodule + dataset readers
   nn/             # encoders / embeddings used by the models
   vectorization/  # SVG vectorization helpers (vtracer)
-  scripts/        # train / eval / inference entry points
+  scripts/        # local inference entry point
 segmentation/
   trapped_ball/   # trapped-ball segmentation + serialization utils
-  gap_closing/    # ML gap-closing model (GapCloser) + training/inference
+  gap_closing/    # ML gap-closing model (GapCloser), inference only
 serving/
   handlers/       # framework-agnostic request handlers (shared by all servers)
   local/          # single FastAPI process serving all endpoints
@@ -87,31 +86,28 @@ pip install -r requirements-cuda.txt
 
 ### Secrets / environment
 
-Experiment tracking (Comet) and any other secrets are read from a local
-`.env` file — nothing is hardcoded.
+Secrets (e.g. Modal deploy credentials) are read from a local `.env` file —
+nothing is hardcoded.
 
 ```bash
 cp .env.example .env
-# edit .env and set COMET_API_KEY (leave blank to disable Comet logging)
 ```
 
 ---
 
-## Data & checkpoints
+## Checkpoints & models
 
-Training data and pretrained checkpoints are **not** included in this repo.
-Instructions for downloading them will be provided separately.
+This repo ships **inference code only** — training code and data pipelines
+are not part of it. Pretrained artifacts come in two forms:
 
-Expected formats:
-
-- **Datasets**: sequences are stored as pickled `Sequence` objects (see
-  `colorize/common/sequence.py`) under a `sequences/` subdirectory of each
-  dataset path.
-- **Checkpoints**: Hugging Face–style directories loadable via
-  `AnTV2Model.from_pretrained(<checkpoint_dir>)`.
-
-Place downloaded data under `data/` or `datasets/` and checkpoints under
-`checkpoints/` (all gitignored).
+- **ONNX models** (what the desktop app uses): downloaded automatically from
+  the `models-v1` GitHub release into the app's models directory, with
+  size + sha256 verification (`app/src/util/model-manifest.js`).
+- **Torch checkpoints** (for the Python servers and the ONNX export/parity
+  tooling): Hugging Face–style directories loadable via
+  `AnTV2Model.from_pretrained(<checkpoint_dir>)`; place them under
+  `checkpoints/` (gitignored). Distribution instructions are provided
+  separately.
 
 ---
 
@@ -206,35 +202,6 @@ cargo run --release -- \
 ```
 
 See `serving/README.md` and `docs/colorizer-serving.md`.
-
-### Evaluation (over a dataset)
-
-```bash
-python colorize/scripts/eval_pipeline_ant_v2.py \
-    --dataset_path  datasets/<your-dataset> \
-    --checkpoint    checkpoints/ant_v2 \
-    --save_colorized
-```
-
-### Training
-
-```bash
-# AnT v2 (recommended)
-python colorize/scripts/train_ant_v2.py \
-    --real_dataset_path      datasets/real \
-    --cadmium_dataset_path   datasets/cadmium \
-    --pbc_dataset_path       datasets/pbc \
-    --synth_dataset_path     datasets/synth \
-    --shapes_dataset_path    datasets/shapes \
-    --handdrawn_dataset_path datasets/handdrawn \
-    --anita_dataset_path     datasets/anita
-
-# AnT v1 takes the same dataset arguments via train_ant_v1.py.
-```
-
-Comet logging activates automatically when `COMET_API_KEY` is set in `.env`.
-
----
 
 ## Running on Modal
 

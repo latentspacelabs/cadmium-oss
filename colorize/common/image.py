@@ -6,7 +6,6 @@ import time
 from PIL import Image
 import cv2
 import torch
-import albumentations as A
 from skimage import transform
 from scipy.ndimage import distance_transform_edt
 import numpy as np
@@ -34,7 +33,6 @@ def prepare_image(
     line_image: np.ndarray,
     image_args: ImageArgs,
     vec_args: VecArgs,
-    augment: bool = False,
     color_image: Optional[np.ndarray] = None,
     verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], SVG]:
@@ -60,15 +58,6 @@ def prepare_image(
     else:
         color_resized = None
 
-    # augment
-    if augment:
-        seg_resized, line_resized, color_resized = augment_images(
-            seg_image=seg_resized,
-            line_image=line_resized,
-            image_args=image_args,
-            color_image=color_resized,
-        )
-
     # mutates seg_resized
     seg_resized, id_map = prepare_resized_seg_for_vtrace(
         seg_original=seg_image,
@@ -92,59 +81,6 @@ def prepare_image(
         color_padded = None
 
     return seg_padded, line_padded, color_padded, vectorized_seg
-
-
-def augment_images(
-    seg_image: np.ndarray,
-    line_image: np.ndarray,
-    image_args: ImageArgs,
-    color_image: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
-    transform = A.Compose(
-        [
-            A.RandomResizedCrop(
-                size=(seg_image.shape[0], seg_image.shape[1]),
-                scale=(0.5, 1.0),
-                p=0.4,
-                interpolation=cv2.INTER_NEAREST,
-            ),
-            A.ShiftScaleRotate(
-                shift_limit=0.3,
-                scale_limit=0.25,
-                rotate_limit=60,
-                p=0.4,
-                border_mode=cv2.BORDER_CONSTANT,
-                fill=(-100, 0, 0),
-                interpolation=cv2.INTER_NEAREST,
-            ),
-            A.ThinPlateSpline(
-                p=0.4,
-                scale_range=(0.1, 0.3),
-                num_control_points=4,
-                interpolation=cv2.INTER_NEAREST,
-            ),
-        ],
-        additional_targets={
-            'image0': 'image',
-            'image1': 'image',
-            'image2': 'image'
-        },
-    )
-
-    # Apply the same transformation to all images
-    images_to_transform = {
-        'image': seg_image.astype(np.float32),
-        'image0': line_image
-    }
-    if color_image is not None:
-        images_to_transform['image1'] = color_image.astype(np.uint8)
-
-    transform_result = transform(**images_to_transform)
-    seg_image_aug = transform_result['image']
-    line_image_aug = transform_result['image0']
-    color_image_aug = transform_result.get('image1', None)
-
-    return seg_image_aug.astype(np.int32), line_image_aug, color_image_aug
 
 
 def resize_proportionally(image: np.ndarray, target_size: Tuple[int, int]) -> np.ndarray:

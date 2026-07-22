@@ -24,26 +24,22 @@ dependencies = [
     "torch==2.6.0",
     "torchvision==0.21.0",
     "transformers==4.46.3",
-    "datasets",
-    "comet-ml==3.47.6",
     "python-dotenv",
     "numpy==1.26.4",
     "scipy==1.12.0",
     "pillow==11.0.0",
-    "matplotlib==3.9.2",
     "opencv-python==4.11.0.86",
     "opencv-python-headless==4.11.0.86",
     "scikit-image==0.24.0",
-    "scikit-learn",
     "einops==0.8.0",
     "kornia==0.7.3",
-    "albumentations==2.0.6",
     "CairoSVG==2.7.1",
     "tqdm",
     # Segmentation: trapped-ball tiling + the ML gap-closing model (GapCloser).
     "tiler==0.5.7",
+    # GapCloser subclasses LightningModule and inference loads via
+    # load_from_checkpoint; training itself lives outside this repo.
     "pytorch-lightning>=2.0.0",
-    "torchmetrics>=0.11.0",
     # Prebuilt vectorization wheel (vtracer) used by the SVG pipeline.
     "vtracer @ https://github.com/latentspacelabs/vtracer/releases/download/cmdapp.2025.2.17/vtracer-0.6.16-cp310-cp310-linux_x86_64.whl",
 ]
