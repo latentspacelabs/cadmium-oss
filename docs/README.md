@@ -10,6 +10,7 @@ TODOs for each part of the system:
 | `segmentation.md` | trapped-ball segmentation, Python + Rust, goldens methodology |
 | `colorizer-serving.md` | AnT v2 inference: pipeline, tokenization, ONNX export, parity, EPs, the sidecar |
 | `gap-closer-serving.md` | GapCloser inference: tiling, UDF thresholding, EP results |
+| `todo.md` | centralized index of open TODOs across the repo, by module and priority |
 
 `temp/` holds retired brainstorming/planning docs (architecture.md,
 serving-backends.md). They record decision history but are superseded by the
