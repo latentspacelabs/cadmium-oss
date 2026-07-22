@@ -35,6 +35,23 @@ points at.
 - **P2 — Windows DirectML e2e shakedown on real GPU hardware** still pending
   (the tiled-scatter AnT path + fp16 boundary parity).
 
+### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
+
+Phase 1 (explicit acceleration status in `/health` + Server Settings) shipped
+2026-07-22. Remaining phases:
+
+- **P2 — Phase 2: Serving Profile.** One declared source of truth for "what
+  models + EPs this machine wants"; downloader and `missingSidecarFiles`
+  validate against it; sha-verify-on-reuse (presence ≠ filename).
+- **P2 — Phase 3: setup ledger + launch reconciler.** Out-of-band installs
+  (manual download, downgrade, reinstall-after-delete) rerun first-run;
+  in-app updates stay seamless via an `updatingTo` stamp around
+  `quitAndInstall()`; NSIS `deleteAppDataOnUninstall` on Windows.
+- **P3 — Phase 4: main-window status chip** (Full speed / Reduced — why /
+  Optimizing…), so degradation is visible outside Server Settings.
+- **P3 — Phase 5: reset button, orphan quarantine, cache pruning,** gap-bucket
+  `CACHE_KEY` (needs a model re-export).
+
 ---
 
 ## app (Electron / Vue renderer + main)
