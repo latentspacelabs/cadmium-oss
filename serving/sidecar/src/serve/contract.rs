@@ -26,6 +26,10 @@ pub struct HealthResponse {
     /// Mirrors the Python server's health field: whether a gap-closer model
     /// is configured (the session itself is built lazily).
     pub gap_closer: bool,
+    /// Sidecar extension (the Python server doesn't send it; the app treats
+    /// it as optional): per-capability acceleration state so the UI can show
+    /// expected vs actual instead of silently degrading.
+    pub acceleration: super::engine::AccelReport,
 }
 
 /// Body returned on any handler error (HTTP 500), mirroring FastAPI's

@@ -95,6 +95,23 @@
               {{ t('Colorization runs on this computer. The app starts and stops the process for you.') }}
             </p>
 
+            <div v-if="accelRows.length" class="server-modal__accel">
+              <div
+                v-for="row in accelRows"
+                :key="row.key"
+                class="server-modal__caps-row"
+              >
+                <span
+                  class="server-modal__caps-icon"
+                  :class="`server-modal__caps-icon--${row.status}`"
+                >{{ capIconSymbol(row.status) }}</span>
+                <span class="server-modal__caps-name server-modal__caps-name--accel">
+                  {{ row.label }}
+                </span>
+                <span class="server-modal__caps-detail">{{ row.detail }}</span>
+              </div>
+            </div>
+
             <template v-if="downloadActive">
               <div class="server-modal__progress">
                 <div
@@ -406,6 +423,18 @@ export default {
         },
       );
     },
+    // Per-capability hardware-acceleration rows from the sidecar's /health
+    // report (expected vs actual — see docs/serving-setup-design.md). Empty
+    // until the sidecar is ready and reporting.
+    accelRows() {
+      const s = this.sidecarStatus;
+      const accel = s && s.health && s.health.acceleration;
+      if (!accel) return [];
+      return [
+        { key: 'colorize', label: t('Colorize'), ...this.accelPresentation(accel.colorize) },
+        { key: 'segment', label: t('Gap closing'), ...this.accelPresentation(accel.segment) },
+      ];
+    },
   },
   watch: {
     isVisible(visible) {
@@ -518,6 +547,25 @@ export default {
       if (check.accelerated === true) return t('Hardware acceleration available');
       if (check.accelerated === false) return t('No GPU detected · will use the CPU (slower)');
       return t('Graphics acceleration status unknown');
+    },
+    // { planned, active, reason } from the sidecar → an icon status + text.
+    // CPU with a reason is a degradation (warn + why); CPU without one is
+    // by-design (info). `building` is the one-time CoreML compile window.
+    accelPresentation(cap) {
+      if (!cap) return { status: 'unknown', detail: t('Unknown') };
+      if (cap.active === 'building') {
+        return { status: 'info', detail: t('Optimizing for this computer — one-time, a few minutes') };
+      }
+      if (cap.active === 'coreml') {
+        return { status: 'ok', detail: t('Hardware accelerated (Apple GPU / Neural Engine)') };
+      }
+      if (cap.active === 'dml') {
+        return { status: 'ok', detail: t('Hardware accelerated (DirectML GPU)') };
+      }
+      if (cap.reason) {
+        return { status: 'warn', detail: t('CPU (slower) — {{reason}}', { reason: cap.reason }) };
+      }
+      return { status: 'info', detail: t('CPU') };
     },
     refreshDownloadPlan() {
       getModelDownloadPlan()
@@ -774,6 +822,16 @@ export default {
   color: #c5c5c5;
   width: 68px;
   flex-shrink: 0;
+
+  // "Gap closing" needs a little more room than the capability names.
+  &--accel { width: 84px; }
+}
+
+// Acceleration rows inside the embedded Status box, set off from the hints.
+.server-modal__accel {
+  border-top: 1px solid #4e4e4e;
+  margin-top: 0.5rem;
+  padding-top: 0.35rem;
 }
 
 .server-modal__caps-detail {

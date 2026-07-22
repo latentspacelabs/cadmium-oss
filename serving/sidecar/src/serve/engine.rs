@@ -120,6 +120,29 @@ const GATE_BUILDING: u8 = 1;
 const GATE_READY: u8 = 2;
 const GATE_FAILED: u8 = 3;
 
+/// One capability's acceleration state, served in `/health` so the app can
+/// show *expected vs actual* instead of silently degrading (see
+/// `docs/serving-setup-design.md`).
+#[derive(Debug, serde::Serialize)]
+pub struct AccelCapability {
+    /// What the resolved plan intends: `coreml` | `dml` | `cpu`.
+    pub planned: &'static str,
+    /// What the next request actually gets: `coreml` | `dml` | `cpu` |
+    /// `building` (CoreML compile in flight; requests serve from CPU).
+    pub active: &'static str,
+    /// Non-null exactly when something actionable is wrong (accelerator
+    /// model missing under `auto`, an EP build failure). A deliberate CPU
+    /// plan carries no reason — CPU-by-design is not a degradation.
+    pub reason: Option<String>,
+}
+
+/// The `/health` acceleration report: one entry per accelerable capability.
+#[derive(Debug, serde::Serialize)]
+pub struct AccelReport {
+    pub colorize: AccelCapability,
+    pub segment: AccelCapability,
+}
+
 pub struct Engine {
     pub gap_model_path: Option<PathBuf>,
     pub gap_bucket_model_path: Option<PathBuf>,
@@ -149,6 +172,12 @@ pub struct Engine {
     /// bucket session is BUILDING (or after a FAILED build) instead of
     /// blocking behind the compile.
     ant_bucket_gate: AtomicU8,
+    /// Why AnT acceleration is absent or degraded (accelerator model not
+    /// configured, EP build failure) — `None` when accelerated or when CPU
+    /// was deliberately chosen. Served in `/health`.
+    ant_accel_reason: Mutex<Option<String>>,
+    /// Same, for the GapCloser.
+    gap_accel_reason: Mutex<Option<String>>,
 }
 
 fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
@@ -247,16 +276,38 @@ impl Engine {
         ep: EpSelect,
         coreml_cache_dir: Option<PathBuf>,
     ) -> Result<Engine, String> {
+        // Under `auto`, a missing accelerator model is the actionable,
+        // easy-to-miss degradation — record why so `/health` can surface it.
+        let mut ant_reason: Option<String> = None;
+        let mut gap_reason: Option<String> = None;
         let ant_ep = match ep {
             EpSelect::Cpu => AntEp::Cpu,
             EpSelect::Auto => {
-                if cfg!(target_os = "macos") && ant_bucket_model_path.is_some() {
-                    AntEp::CoreMlBucket
-                } else if cfg!(target_os = "windows") && ant_tiled_model_path.is_some() {
+                if cfg!(target_os = "macos") {
+                    if ant_bucket_model_path.is_some() {
+                        AntEp::CoreMlBucket
+                    } else {
+                        ant_reason = Some(
+                            "accelerator model not configured (--ant-model-bucket / \
+                             ant_v2_fp32_bucket.onnx)"
+                                .into(),
+                        );
+                        AntEp::Cpu
+                    }
+                } else if cfg!(target_os = "windows") {
                     // The tiled model is what makes DirectML worthwhile (the
                     // stock model's scatter falls back to CPU); only auto-enable
                     // DML when it is present.
-                    AntEp::Dml
+                    if ant_tiled_model_path.is_some() {
+                        AntEp::Dml
+                    } else {
+                        ant_reason = Some(
+                            "accelerator model not configured (--ant-model-tiled / \
+                             ant_v2_fp32_tiledscatter.onnx)"
+                                .into(),
+                        );
+                        AntEp::Cpu
+                    }
                 } else {
                     AntEp::Cpu
                 }
@@ -283,11 +334,18 @@ impl Engine {
         };
         // GapCloser: CoreML on macOS under coreml/auto when its batch-pinned
         // export is supplied; CPU everywhere else.
-        let gap_ep = if cfg!(target_os = "macos")
-            && gap_bucket_model_path.is_some()
-            && matches!(ep, EpSelect::Auto | EpSelect::CoreMl)
+        let gap_ep = if cfg!(target_os = "macos") && matches!(ep, EpSelect::Auto | EpSelect::CoreMl)
         {
-            GapEp::CoreMl
+            if gap_bucket_model_path.is_some() {
+                GapEp::CoreMl
+            } else {
+                gap_reason = Some(
+                    "accelerator model not configured (--gap-model-bucket / \
+                     gap_closer_fp32_bucket.onnx)"
+                        .into(),
+                );
+                GapEp::Cpu
+            }
         } else {
             GapEp::Cpu
         };
@@ -311,7 +369,53 @@ impl Engine {
             ant: Mutex::new(None),
             ant_bucket: Mutex::new(None),
             ant_bucket_gate: AtomicU8::new(GATE_IDLE),
+            ant_accel_reason: Mutex::new(ant_reason),
+            gap_accel_reason: Mutex::new(gap_reason),
         })
+    }
+
+    /// Record why a capability lost (or never got) acceleration; the app
+    /// reads it from `/health`.
+    fn note_accel_reason(slot: &Mutex<Option<String>>, reason: &str) {
+        if let Ok(mut guard) = slot.lock() {
+            *guard = Some(reason.to_string());
+        }
+    }
+
+    /// The `/health` acceleration report: per capability, the planned EP,
+    /// what the next request actually gets, and the reason when degraded.
+    pub fn accel_report(&self) -> AccelReport {
+        let ant_reason = self.ant_accel_reason.lock().ok().and_then(|g| g.clone());
+        let colorize = match self.ant_ep {
+            AntEp::Cpu => AccelCapability { planned: "cpu", active: "cpu", reason: ant_reason },
+            // A DirectML init failure latches a reason and serves from CPU;
+            // until the first build the report is optimistic.
+            AntEp::Dml => AccelCapability {
+                planned: "dml",
+                active: if ant_reason.is_some() { "cpu" } else { "dml" },
+                reason: ant_reason,
+            },
+            AntEp::CoreMlBucket => AccelCapability {
+                planned: "coreml",
+                active: match self.ant_bucket_gate.load(Ordering::SeqCst) {
+                    GATE_BUILDING => "building",
+                    GATE_FAILED => "cpu",
+                    // READY, or IDLE (harnesses build inline on first use).
+                    _ => "coreml",
+                },
+                reason: ant_reason,
+            },
+        };
+        let gap_reason = self.gap_accel_reason.lock().ok().and_then(|g| g.clone());
+        let segment = match self.gap_ep {
+            GapEp::Cpu => AccelCapability { planned: "cpu", active: "cpu", reason: gap_reason },
+            GapEp::CoreMl => AccelCapability {
+                planned: "coreml",
+                active: if self.gap_coreml_failed.load(Ordering::SeqCst) { "cpu" } else { "coreml" },
+                reason: gap_reason,
+            },
+        };
+        AccelReport { colorize, segment }
     }
 
     /// Build the CoreML sessions in a background thread so the first user
@@ -354,6 +458,7 @@ impl Engine {
                             // latch it so every /segment goes straight to CPU.
                             Err(e) => {
                                 engine.gap_coreml_failed.store(true, Ordering::SeqCst);
+                                Self::note_accel_reason(&engine.gap_accel_reason, &e);
                                 tracing::warn!(error = %e, "GapCloser prewarm failed; using the CPU EP");
                             }
                         }
@@ -367,10 +472,15 @@ impl Engine {
                             *guard = Some(state);
                             GATE_READY
                         } else {
+                            Self::note_accel_reason(
+                                &engine.ant_accel_reason,
+                                "ant bucket session state poisoned",
+                            );
                             GATE_FAILED
                         }
                     }
                     Err(e) => {
+                        Self::note_accel_reason(&engine.ant_accel_reason, &e);
                         tracing::warn!(
                             error = %e,
                             "AnT bucket prewarm failed; colorize stays on the dynamic CPU session"
@@ -468,6 +578,7 @@ impl Engine {
                     // Latch the build failure so run_gap_udfs stops retrying a
                     // compile that can't succeed and serves from the CPU EP.
                     self.gap_coreml_failed.store(true, Ordering::SeqCst);
+                    Self::note_accel_reason(&self.gap_accel_reason, &e);
                     return Err(e);
                 }
             }
@@ -587,10 +698,13 @@ impl Engine {
                 };
                 match build_dml_session(what, path) {
                     Ok(session) => return Ok(session),
-                    Err(e) => tracing::warn!(
-                        error = %e,
-                        "DirectML session unavailable; falling back to the stock AnT model on the CPU EP"
-                    ),
+                    Err(e) => {
+                        Self::note_accel_reason(&self.ant_accel_reason, &e);
+                        tracing::warn!(
+                            error = %e,
+                            "DirectML session unavailable; falling back to the stock AnT model on the CPU EP"
+                        );
+                    }
                 }
             }
         }
@@ -631,6 +745,7 @@ impl Engine {
                     self.ant_bucket_gate.store(GATE_READY, Ordering::SeqCst);
                 }
                 Err(e) => {
+                    Self::note_accel_reason(&self.ant_accel_reason, &e);
                     self.ant_bucket_gate.store(GATE_FAILED, Ordering::SeqCst);
                     return Err(e);
                 }
@@ -707,4 +822,32 @@ fn run_ant_session(session: &mut Session, feed: &AntFeed) -> Result<(Vec<usize>,
         ));
     }
     Ok((dims, data.to_vec()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accel_report_explicit_cpu_plan_carries_no_reason() {
+        let e = Engine::new(None, None, None, None, None, EpSelect::Cpu, None).unwrap();
+        let r = e.accel_report();
+        assert_eq!((r.colorize.planned, r.colorize.active), ("cpu", "cpu"));
+        assert!(r.colorize.reason.is_none());
+        assert_eq!((r.segment.planned, r.segment.active), ("cpu", "cpu"));
+        assert!(r.segment.reason.is_none());
+    }
+
+    /// `auto` with no accelerator models: the report must say WHY nothing is
+    /// accelerated (the silent-CPU field failure this report exists to catch).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn accel_report_auto_names_the_missing_accelerator_models() {
+        let e = Engine::new(None, None, None, None, None, EpSelect::Auto, None).unwrap();
+        let r = e.accel_report();
+        assert_eq!(r.colorize.active, "cpu");
+        assert!(r.colorize.reason.unwrap().contains("ant-model-bucket"));
+        assert_eq!(r.segment.active, "cpu");
+        assert!(r.segment.reason.unwrap().contains("gap-model-bucket"));
+    }
 }

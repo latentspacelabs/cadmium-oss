@@ -46,6 +46,7 @@ async fn health(State(engine): State<Arc<Engine>>) -> Json<HealthResponse> {
         engine: "sidecar-rust",
         version: env!("CARGO_PKG_VERSION"),
         gap_closer: engine.gap_model_path.is_some(),
+        acceleration: engine.accel_report(),
     })
 }
 

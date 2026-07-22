@@ -73,13 +73,28 @@ function defaultAllocatePort() {
   });
 }
 
-// One GET <url>; true iff it answers 200 within ~1s.
+// One GET <url>; resolves the parsed JSON body on a 200 (the sidecar's
+// /health carries the acceleration report), `true` on a 200 with an
+// unparseable body, `false` otherwise. Any truthy value means "healthy".
 function defaultFetchHealth(url) {
   const http = require('http');
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: 1000 }, (res) => {
-      res.resume();
-      resolve(res.statusCode === 200);
+      if (res.statusCode !== 200) {
+        res.resume();
+        resolve(false);
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body) || true);
+        } catch (e) {
+          resolve(true);
+        }
+      });
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => {
@@ -173,6 +188,9 @@ export class SidecarManager {
     this.child = null;
     this.lastError = null;
     this.restarts = 0;
+    // Last parsed /health body (null when the probe returned a bare 200).
+    // Only meaningful while READY — getStatus gates it on state.
+    this.lastHealth = null;
 
     this._startingPromise = null;
     this._deliberateStop = false;
@@ -199,7 +217,31 @@ export class SidecarManager {
       restarts: this.restarts,
       binPath: this.paths.binPath,
       modelsDir: this.paths.modelsDir,
+      // The sidecar's last /health body (acceleration report etc.); null
+      // unless READY, so a stale report never outlives its process.
+      health: this.state === SIDECAR_STATES.READY ? this.lastHealth : null,
     };
+  }
+
+  /**
+   * Re-poll /health while READY and push a status update if the body changed
+   * (the acceleration report moves as CoreML compiles finish or fall back).
+   * Fire-and-forget from the sync `sidecar:status` IPC; never throws.
+   */
+  async refreshHealth() {
+    if (this.state !== SIDECAR_STATES.READY) return;
+    const gen = this._generation;
+    let health = null;
+    try {
+      health = await this.fetchHealthFn(`${embeddedBaseUrl(this.port)}/health`);
+    } catch (e) {
+      return; // transient probe error — keep the last snapshot
+    }
+    if (gen !== this._generation || this.state !== SIDECAR_STATES.READY) return;
+    if (!health || typeof health !== 'object') return;
+    const changed = JSON.stringify(health) !== JSON.stringify(this.lastHealth);
+    this.lastHealth = health;
+    if (changed && this.onStatus) this.onStatus(this.getStatus());
   }
 
   _setState(state) {
@@ -353,10 +395,12 @@ export class SidecarManager {
         // stop() superseded this attempt — that transition owns the status.
         return this.getStatus();
       }
-      if (await this.fetchHealthFn(healthUrl)) {
+      const health = await this.fetchHealthFn(healthUrl);
+      if (health) {
         if (gen !== this._generation || this.state !== SIDECAR_STATES.STARTING) {
           return this.getStatus();
         }
+        this.lastHealth = typeof health === 'object' ? health : null;
         this._setState(SIDECAR_STATES.READY);
         return this.getStatus();
       }

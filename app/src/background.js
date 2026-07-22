@@ -265,9 +265,12 @@ ipcMain.handle('sidecar:ensure', (event, opts) => {
   return getSidecarManager().ensureStarted(opts || {});
 });
 
-// Status snapshot — never spawns.
+// Status snapshot — never spawns. Also kicks a background /health re-poll so
+// the acceleration report stays live (a change pushes 'sidecar:status').
 ipcMain.handle('sidecar:status', () => {
-  return getSidecarManager().getStatus();
+  const manager = getSidecarManager();
+  manager.refreshHealth().catch(() => {});
+  return manager.getStatus();
 });
 
 ipcMain.handle('sidecar:stop', () => {

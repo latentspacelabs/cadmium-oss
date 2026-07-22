@@ -501,3 +501,60 @@ describe('SidecarManager — stop and quit', () => {
     expect(h.spawned.length).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// /health body & the acceleration report (docs/serving-setup-design.md, ph. 1)
+// ---------------------------------------------------------------------------
+
+describe('SidecarManager — health body / acceleration report', () => {
+  const HEALTH = {
+    status: 'ok',
+    gap_closer: true,
+    acceleration: {
+      colorize: { planned: 'coreml', active: 'building', reason: null },
+      segment: { planned: 'cpu', active: 'cpu', reason: 'accelerator model not configured' },
+    },
+  };
+
+  it('captures the parsed /health body in the status while ready', async () => {
+    const h = makeHarness({ health: () => HEALTH });
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY);
+    expect(status.health).toEqual(HEALTH);
+  });
+
+  it('a bare-boolean health probe leaves health null (older sidecars)', async () => {
+    const h = makeHarness({ health: () => true });
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY);
+    expect(status.health).toBeNull();
+  });
+
+  it('refreshHealth pushes a status update only when the body changes', async () => {
+    const h = makeHarness({ health: () => HEALTH });
+    await h.manager.ensureStarted();
+    const pushes = h.statuses.length;
+
+    await h.manager.refreshHealth(); // identical body — no push
+    expect(h.statuses.length).toBe(pushes);
+
+    // The CoreML compile finishing flips colorize building -> coreml.
+    h.health = () => ({
+      ...HEALTH,
+      acceleration: {
+        ...HEALTH.acceleration,
+        colorize: { planned: 'coreml', active: 'coreml', reason: null },
+      },
+    });
+    await h.manager.refreshHealth();
+    expect(h.statuses.length).toBe(pushes + 1);
+    expect(h.manager.getStatus().health.acceleration.colorize.active).toBe('coreml');
+  });
+
+  it('health is nulled once the sidecar stops (no stale report)', async () => {
+    const h = makeHarness({ health: () => HEALTH, childOptions: { exitOnSigterm: true } });
+    await h.manager.ensureStarted();
+    await h.manager.stop();
+    expect(h.manager.getStatus().health).toBeNull();
+  });
+});
