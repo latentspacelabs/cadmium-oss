@@ -108,6 +108,27 @@ jobs:
       - name: npm ci
         working-directory: app
         run: npm ci
+      # A v* tag build must never draft an unsigned/un-notarized release; the
+      # unsigned fallback below is for push builds only. Absent secrets here
+      # usually mean the repo dropped out of the org secrets' "selected
+      # repositories" list (this happens when the repo is recreated).
+      - name: Require signing secrets on release tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          [ -z "$CSC_LINK" ] && missing="$missing CSC_LINK"
+          [ -z "$APPLE_ID" ] && missing="$missing APPLE_ID"
+          [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] && missing="$missing APPLE_APP_SPECIFIC_PASSWORD"
+          [ -z "$APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Release tag build, but mac signing/notarization secrets are missing:$missing"
+            exit 1
+          fi
       - name: Package
         working-directory: app
         env:
@@ -174,6 +195,23 @@ jobs:
       - name: npm ci
         working-directory: app
         run: npm ci
+      # Same rule as package-mac: a v* tag build must never draft an unsigned
+      # installer, while push builds may skip signing.
+      - name: Require signing secrets on release tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          ES_PW: ${{ secrets.ES_PASSWORD }}
+          ES_TOTP: ${{ secrets.ES_TOTP_SECRET }}
+        run: |
+          missing=""
+          [ -z "$ES_USERNAME" ] && missing="$missing ES_USERNAME"
+          [ -z "$ES_PW" ] && missing="$missing ES_PASSWORD"
+          [ -z "$ES_TOTP" ] && missing="$missing ES_TOTP_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Release tag build, but eSigner secrets are missing:$missing"
+            exit 1
+          fi
       # SSL.com eSigner CKA (documented flow: install silently, configure
       # with account credentials + TOTP seed, load the cert into the store,
       # then read its thumbprint). Skipped when the secrets are absent —
