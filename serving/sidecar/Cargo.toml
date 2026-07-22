@@ -3,7 +3,7 @@ name = "cadmium-sidecar"
 version = "0.1.0"
 edition = "2021"
 description = "Rust sidecar serving the Cadmium ML HTTP contract (serving-backends R1 skeleton)"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]

@@ -3,6 +3,7 @@
   "version": "1.5.4",
   "author": "Latent Space Labs",
   "description": "Color your animation frames with AI.",
+  "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "serve": "NODE_ENV=development vue-cli-service serve",

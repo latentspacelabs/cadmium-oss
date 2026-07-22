@@ -1,0 +1,8 @@
+Cadmium
+Copyright 2026 Latent Space Labs
+
+This product includes software developed at Latent Space Labs
+(https://github.com/latentspacelabs/cadmium-oss).
+
+Vendored third-party code under third_party/ (visioncortex, vtracer forks)
+retains its original licenses — see the LICENSE files in those directories.

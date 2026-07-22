@@ -9,7 +9,7 @@ description = "Reference-guided flat-fill colorization for line art (AnT v1/v2)"
 readme = "README.md"
 requires-python = ">=3.10"
 # License is not yet finalized — see README.
-license = { text = "TBD" }
+license = { text = "Apache-2.0" }
 
 # Core dependencies that install cleanly from PyPI. CUDA-specific packages
 # (torch-scatter, cupy, cucim) are pinned separately in requirements-cuda.txt

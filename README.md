@@ -12,9 +12,8 @@ This repo contains two model generations:
   inference and Modal paths below). The v2 pipeline reuses v1 components, so
   both are included.
 
-> ⚠️ **Status / license.** This is research code released for reproducibility.
-> A license has **not** been finalized yet — until one is added, no usage
-> rights are granted. Don't rely on it for production until that's resolved.
+> **License:** [Apache 2.0](LICENSE). Vendored `third_party/` code keeps its
+> original licenses.
 
 ---
 
@@ -239,4 +238,6 @@ container image definition.
 
 ## License
 
-Not yet finalized. See the status note at the top of this file.
+[Apache License 2.0](LICENSE). Vendored code under `third_party/`
+(visioncortex, vtracer forks) retains its original licenses — see the
+LICENSE files in those directories.
