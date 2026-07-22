@@ -43,6 +43,7 @@ describe('resolveSidecarPaths', () => {
     expect(paths.antBucketModelPath).toBe(`/ud/models/${MODEL_ANT_BUCKET}`);
     expect(paths.antTiledModelPath).toBe(`/ud/models/${MODEL_ANT_TILED}`);
     expect(paths.gapBucketModelPath).toBe(`/ud/models/${MODEL_GAP_BUCKET}`);
+    expect(paths.coremlCacheDir).toBe('/ud/sidecar/coreml-cache');
   });
 
   it('packaged windows: binary name gains .exe', () => {
@@ -172,6 +173,15 @@ describe('buildSidecarArgs', () => {
     expect(args.slice(-2)).toEqual(['--gap-model-bucket', '/m/gapb.onnx']);
     expect(buildSidecarArgs({ port: 1, antModelPath: 'a', gapModelPath: 'g' }))
       .not.toContain('--gap-model-bucket');
+  });
+
+  it('adds --coreml-cache-dir only when a cache dir is supplied', () => {
+    const args = buildSidecarArgs({
+      port: 1, antModelPath: 'a', gapModelPath: 'g', coremlCacheDir: '/ud/sidecar/coreml-cache',
+    });
+    expect(args.slice(-2)).toEqual(['--coreml-cache-dir', '/ud/sidecar/coreml-cache']);
+    expect(buildSidecarArgs({ port: 1, antModelPath: 'a', gapModelPath: 'g' }))
+      .not.toContain('--coreml-cache-dir');
   });
 });
 

@@ -38,13 +38,17 @@ miniz_oxide = "0.8"
 # Used by verify_imageprep to replay `vtrace.py::vectorize`.
 vtracer = { path = "../../third_party/vtracer/cmdapp" }
 
-# Per-target EP registration features. These only compile the registration
-# call into `ort` — the pyke prebuilt binaries for Apple targets already ship
-# the CoreML EP (the `coreml` feature does not change which binary is
-# downloaded), and the Windows binaries ship DirectML. Keeping them
-# target-specific keeps the mac build free of DML code and vice versa.
+# Per-target EP registration features, target-specific so the mac build is
+# free of DML code and vice versa.
+#
+# macOS additionally uses `load-dynamic`: the crate's newest release links a
+# static ORT 1.24.2, but ORT >= 1.25 runs CoreML conv graphs ~3x faster, so
+# the sidecar dlopens Microsoft's official 1.27 dylib instead (fetched by
+# scripts/fetch-ort-dylib.sh, located at runtime by src/ort_dylib.rs).
+# Windows keeps the static pyke binary (ships DirectML; 1.24 DML perf is the
+# validated baseline there).
 [target.'cfg(target_os = "macos")'.dependencies]
-ort = { version = "=2.0.0-rc.12", features = ["coreml"] }
+ort = { version = "=2.0.0-rc.12", features = ["coreml", "load-dynamic"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["directml"] }

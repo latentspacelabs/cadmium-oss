@@ -14,6 +14,10 @@
 //! tiles and reports how many boundary pixels differ from the golden
 //! stage 03 (torch-CUDA vs ONNX-CPU threshold flips). Report-only: it
 //! never affects the exit code.
+//!
+//! With --coreml-bucket, does the same through the PRODUCTION serving path
+//! instead: `Engine::run_gap_udfs` on the batch-pinned export (CoreML EP,
+//! fixed batches, zero-padded tail) — macOS only. Also report-only.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -24,8 +28,9 @@ use cadmium_sidecar::goldens::{
     read_npz,
 };
 use cadmium_sidecar::segment::tiled::{self, GapCloseStages};
-use cadmium_sidecar::segment::tiler::Tiler;
+use cadmium_sidecar::segment::tiler::{PlaneF32, Tiler};
 use cadmium_sidecar::segment::{binarize, Gray};
+use cadmium_sidecar::serve::engine::{Engine, EpSelect};
 
 const STAGE_NAMES: [&str; 13] = [
     "01_crop", "02_pad", "03_in", "04_bnd", "05_segp", "06_tseg", "07_bord", "08_cc", "09_unm",
@@ -34,20 +39,32 @@ const STAGE_NAMES: [&str; 13] = [
 const N_STAGES: usize = STAGE_NAMES.len();
 
 fn main() -> ExitCode {
+    if let Err(e) = cadmium_sidecar::ort_dylib::init() {
+        eprintln!("ort dylib: {e}");
+        return ExitCode::from(2);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut root: Option<PathBuf> = None;
     let mut onnx: Option<PathBuf> = None;
+    let mut coreml_bucket: Option<PathBuf> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--onnx" => onnx = Some(PathBuf::from(it.next().expect("--onnx needs a path"))),
+            "--coreml-bucket" => {
+                coreml_bucket =
+                    Some(PathBuf::from(it.next().expect("--coreml-bucket needs a path")));
+            }
             _ => root = Some(PathBuf::from(a)),
         }
     }
     let root = match root {
         Some(p) => p,
         None => {
-            eprintln!("usage: verify_gapclose <goldens_root> [--onnx <model.onnx>]");
+            eprintln!(
+                "usage: verify_gapclose <goldens_root> [--onnx <model.onnx>] \
+                 [--coreml-bucket <model.onnx>]"
+            );
             return ExitCode::from(2);
         }
     };
@@ -64,6 +81,13 @@ fn main() -> ExitCode {
     }
 
     let mut onnx_session = onnx.as_deref().map(load_onnx);
+    // The production serving path for the batch-pinned export: no dynamic gap
+    // model is supplied, so a CoreML failure surfaces as "no udfs" here
+    // instead of silently passing via the CPU fallback.
+    let engine = coreml_bucket.map(|p| {
+        Engine::new(None, Some(p), None, None, None, EpSelect::Auto, None)
+            .unwrap_or_else(|e| panic!("engine: {e}"))
+    });
 
     let mut matrix: Vec<(String, [bool; N_STAGES], f64)> = Vec::new();
     let mut all_pass = true;
@@ -75,6 +99,9 @@ fn main() -> ExitCode {
         matrix.push((name, results, secs));
         if let Some(session) = onnx_session.as_mut() {
             report_onnx_flips(dir, &stages, session);
+        }
+        if let Some(engine) = engine.as_ref() {
+            report_coreml_flips(dir, &stages, engine);
         }
     }
 
@@ -378,41 +405,86 @@ fn load_onnx(path: &Path) -> ort::session::Session {
     session
 }
 
-/// Replays `GapCloser.forward`'s boundary computation with the ONNX model
-/// on our stage-02 tiles and counts pixels differing from golden 03.
-fn report_onnx_flips(dir: &Path, stages: &GapCloseStages, session: &mut ort::session::Session) {
-    let name = dir.file_name().unwrap().to_string_lossy();
-    let (b03, shape) = load_npy_u8(&dir.join("03_tile_boundary.npy"));
-    let (n, th, tw) = (shape[0], shape[1], shape[2]);
-
+/// The stage-02 model tiles for a drawing, checked against golden 03's count.
+fn model_tiles(stages: &GapCloseStages, n_golden: usize) -> Vec<PlaneF32> {
     let overlap = (tiled::TILE_SIZE as f64 * tiled::OVERLAP_FACTOR) as usize;
     let tiler = Tiler::new(
         [stages.padded_edge.h, stages.padded_edge.w],
         [tiled::TILE_SIZE, tiled::TILE_SIZE],
         [overlap, overlap],
     );
-    assert_eq!(tiler.n_tiles(), n, "model tile count mismatch");
+    assert_eq!(tiler.n_tiles(), n_golden, "model tile count mismatch");
+    (0..n_golden)
+        .map(|tile_id| tiler.get_tile_f32(&stages.padded_edge, tile_id))
+        .collect()
+}
+
+/// Replays `GapCloser.forward`'s boundary computation with the ONNX model
+/// (one tile per forward, CPU EP) and counts pixels differing from golden 03.
+fn report_onnx_flips(dir: &Path, stages: &GapCloseStages, session: &mut ort::session::Session) {
+    let (b03, shape) = load_npy_u8(&dir.join("03_tile_boundary.npy"));
+    let (n, th, tw) = (shape[0], shape[1], shape[2]);
+    let tiles = model_tiles(stages, n);
 
     let t0 = Instant::now();
+    let udfs: Vec<Vec<f32>> = tiles
+        .iter()
+        .map(|tile| {
+            // ONNX UDF forward on [1, 1, 512, 512]
+            let tensor = ort::value::Tensor::from_array(([1usize, 1, th, tw], tile.data.clone()))
+                .expect("tensor");
+            let outputs = session
+                .run(ort::inputs![ONNX_INPUT => tensor])
+                .expect("onnx forward");
+            let first_output = outputs.iter().next().expect("no outputs").1;
+            let (_, udf) = first_output
+                .try_extract_tensor::<f32>()
+                .expect("f32 output");
+            udf.to_vec()
+        })
+        .collect();
+    report_flips(dir, "onnx", &b03, (n, th, tw), &tiles, &udfs, t0.elapsed().as_secs_f64());
+}
+
+/// Same flip count, but the UDFs come from the PRODUCTION serving path:
+/// `Engine::run_gap_udfs` on the batch-pinned CoreML export.
+fn report_coreml_flips(dir: &Path, stages: &GapCloseStages, engine: &Engine) {
+    let name = dir.file_name().unwrap().to_string_lossy();
+    let (b03, shape) = load_npy_u8(&dir.join("03_tile_boundary.npy"));
+    let (n, th, tw) = (shape[0], shape[1], shape[2]);
+    let tiles = model_tiles(stages, n);
+
+    let t0 = Instant::now();
+    let udfs = match engine.run_gap_udfs(&tiles) {
+        Ok(Some(udfs)) => udfs,
+        Ok(None) => {
+            println!("{name}/coreml: no udfs (CoreML failed and no CPU fallback model)");
+            return;
+        }
+        Err(e) => {
+            println!("{name}/coreml: FAILED: {e}");
+            return;
+        }
+    };
+    report_flips(dir, "coreml", &b03, (n, th, tw), &tiles, &udfs, t0.elapsed().as_secs_f64());
+}
+
+/// boundary_binary = (udf * max_dist < threshold); combined with
+/// 1 - binarize((tile * 255).astype(np.uint8)) / 255  (line.py's 2-D
+/// branch is im = 255 - img, which binarize_adaptive_mean applies)
+fn report_flips(
+    dir: &Path,
+    label: &str,
+    b03: &[u8],
+    (n, th, tw): (usize, usize, usize),
+    tiles: &[PlaneF32],
+    udfs: &[Vec<f32>],
+    secs: f64,
+) {
+    let name = dir.file_name().unwrap().to_string_lossy();
     let mut total_flips = 0usize;
     let mut worst_tile = (0usize, 0usize); // (tile_id, flips)
-    for tile_id in 0..n {
-        let tile = tiler.get_tile_f32(&stages.padded_edge, tile_id);
-
-        // ONNX UDF forward on [1, 1, 512, 512]
-        let tensor = ort::value::Tensor::from_array(([1usize, 1, th, tw], tile.data.clone()))
-            .expect("tensor");
-        let outputs = session
-            .run(ort::inputs![ONNX_INPUT => tensor])
-            .expect("onnx forward");
-        let first_output = outputs.iter().next().expect("no outputs").1;
-        let (_, udf) = first_output
-            .try_extract_tensor::<f32>()
-            .expect("f32 output");
-
-        // boundary_binary = (udf * max_dist < threshold); combined with
-        // 1 - binarize((tile * 255).astype(np.uint8)) / 255  (line.py's 2-D
-        // branch is im = 255 - img, which binarize_adaptive_mean applies)
+    for (tile_id, (tile, udf)) in tiles.iter().zip(udfs.iter()).enumerate() {
         let mut img_u8 = Gray::new(tw, th, 0);
         for (dst, &v) in img_u8.data.iter_mut().zip(tile.data.iter()) {
             *dst = (v * 255.0) as u8;
@@ -433,11 +505,11 @@ fn report_onnx_flips(dir: &Path, stages: &GapCloseStages, session: &mut ort::ses
         }
     }
     println!(
-        "{name}/onnx: {total_flips} boundary flips vs golden 03 over {n} tiles ({} px, {:.4}%), worst tile {} with {}; {:.2}s",
+        "{name}/{label}: {total_flips} boundary flips vs golden 03 over {n} tiles ({} px, {:.4}%), worst tile {} with {}; {:.2}s",
         n * th * tw,
         100.0 * total_flips as f64 / (n * th * tw) as f64,
         worst_tile.0,
         worst_tile.1,
-        t0.elapsed().as_secs_f64(),
+        secs,
     );
 }

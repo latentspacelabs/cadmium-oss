@@ -319,6 +319,7 @@ export class SidecarManager {
       gapBucketModelPath: this.existsFn(this.paths.gapBucketModelPath)
         ? this.paths.gapBucketModelPath
         : null,
+      coremlCacheDir: this.paths.coremlCacheDir,
     });
 
     let child;

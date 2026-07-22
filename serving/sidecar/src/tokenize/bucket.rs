@@ -31,14 +31,20 @@ pub struct Bucket {
     pub length: usize,
 }
 
-/// `parity_corpus.py::CORPUS_BUCKET` — the corpus-wide maxima rounded up.
-/// The bucket-pinned AnT export has all input dims fixed to these sizes.
+/// `parity_corpus.py::CORPUS_BUCKET` — the bucket-pinned AnT export has all
+/// input dims fixed to these sizes. Sized so real drawings fit: slots cover
+/// the segment distribution's tail (vast majority < 50, long tail to 512 — a
+/// >255-segment drawing falls back to the dynamic CPU session), flat/rows
+/// cover ~150 average-complexity segments (corpus average ~53 cmds/segment).
+/// On CoreML the compile (~107s) and forward (~1s) are dominated by the
+/// image-UNet, so these dims are nearly free vs the old 32-slot bucket;
+/// growing rows/flat further measurably slows the forward (128/16384: ~1.7s).
 pub const CORPUS_BUCKET: Bucket = Bucket {
-    slots: 32,
-    rows: 16,
+    slots: 256,
+    rows: 64,
     cmds: 256,
-    flat: 2048,
-    length: 64,
+    flat: 8192,
+    length: 512,
 };
 
 /// `pad_to(t, shape, value)`: value-filled tensor of `shape` with `t` in the

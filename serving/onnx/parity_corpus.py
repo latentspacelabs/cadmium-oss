@@ -40,8 +40,13 @@ from serving.onnx.export_ant_v2 import (
 # one shared bucket for the whole corpus: every padded pair has IDENTICAL
 # input shapes, so a static-shape backend (CoreML) compiles ONCE
 # (robot.cdm maxima: 24 slots, 12 rows, 216 cmds, 1273 flat, 47 tokens —
-# NOTE the SVG encoder's max_position_embeddings is 256, capping cmds)
-CORPUS_BUCKET = {"slots": 32, "rows": 16, "cmds": 256, "flat": 2048, "length": 64}
+# NOTE the SVG encoder's max_position_embeddings is 256, capping cmds).
+# Production-sized (matches serving/sidecar/src/tokenize/bucket.rs): slots
+# cover the real segment distribution's tail, flat/rows ~150 average-
+# complexity segments; the CoreML compile/forward are UNet-dominated so
+# these dims are nearly free (going to rows 128 / flat 16384 is not: ~1.7s
+# vs ~1.0s forward on an M3).
+CORPUS_BUCKET = {"slots": 256, "rows": 64, "cmds": 256, "flat": 8192, "length": 512}
 
 
 def load_rgba(path):

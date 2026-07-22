@@ -51,6 +51,11 @@ async fn main() -> ExitCode {
         )
         .init();
 
+    if let Err(e) = cadmium_sidecar::ort_dylib::init() {
+        eprintln!("ort dylib: {e}");
+        return ExitCode::from(2);
+    }
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut root: Option<PathBuf> = None;
     let mut ant_model: Option<PathBuf> = None;
@@ -98,7 +103,7 @@ async fn main() -> ExitCode {
 
     // verify_http never exercises the DirectML tiled fast path (it gates the
     // CPU/CoreML goldens), so no tiled model; gap closing stays on the CPU EP.
-    let engine = match Engine::new(gap_model, None, ant_model, ant_model_bucket, None, ep) {
+    let engine = match Engine::new(gap_model, None, ant_model, ant_model_bucket, None, ep, None) {
         Ok(e) => Arc::new(e),
         Err(e) => {
             eprintln!("engine: {e}");

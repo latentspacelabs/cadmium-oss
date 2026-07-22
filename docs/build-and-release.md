@@ -11,8 +11,17 @@ A packaged Cadmium is the Electron app plus one extra ingredient: the
 **embedded serving sidecar** (`serving/sidecar`, Rust + ONNX Runtime),
 copied into the app bundle by electron-builder:
 
-- mac: `Cadmium.app/Contents/Resources/sidecar/cadmium-sidecar` (arm64)
-- win: `resources/sidecar/cadmium-sidecar.exe` (x64 MSVC)
+- mac: `Cadmium.app/Contents/Resources/sidecar/cadmium-sidecar` (arm64),
+  plus `sidecar/libonnxruntime.1.27.0.dylib` — the mac sidecar is built with
+  `ort`'s `load-dynamic` feature and dlopens Microsoft's official ORT dylib
+  (the crate's static binary is 1.24; ORT >= 1.25 runs CoreML conv graphs
+  ~3x faster). Fetch it with `serving/sidecar/scripts/fetch-ort-dylib.sh`
+  (into `serving/sidecar/vendor/`, gitignored) before `electron:build`; the
+  sidecar finds any `libonnxruntime*.dylib` next to its own binary (or
+  honors `ORT_DYLIB_PATH`). For dev runs of the sidecar/verify bins, copy it
+  to `serving/sidecar/target/release/` too.
+- win: `resources/sidecar/cadmium-sidecar.exe` (x64 MSVC; statically links
+  the pyke ORT 1.24 binary with DirectML — no dylib involved)
 
 That location is a contract with `app/src/util/sidecar-core.js`
 (`resolveSidecarPaths()` reads `process.resourcesPath + '/sidecar/...'` in
@@ -43,7 +52,7 @@ a models dir. Dev-serve quirks (ELECTRON_RUN_AS_NODE etc.) are in
 Local packaged build, no signing assets required:
 
 ```bash
-cd serving/sidecar && cargo build --release
+cd serving/sidecar && cargo build --release && scripts/fetch-ort-dylib.sh
 cd ../../app && CADMIUM_UNSIGNED_LOCAL_BUILD=1 npm run electron:build -- --mac dir
 ```
 

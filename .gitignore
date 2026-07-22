@@ -33,6 +33,8 @@ colorize/vectorization/vtrace_output/
 
 # Rust sidecar build output
 serving/sidecar/target/
+# Fetched ONNX Runtime dylib (see serving/sidecar/scripts/fetch-ort-dylib.sh)
+serving/sidecar/vendor/
 
 # Misc
 .DS_Store

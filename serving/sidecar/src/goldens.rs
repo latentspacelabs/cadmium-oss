@@ -136,8 +136,10 @@ pub fn parse_npy_bool(bytes: &[u8]) -> (Vec<bool>, Vec<usize>) {
 /// Read the entries of an npz zip file: sequential local file headers with
 /// sizes present (numpy writes to a seekable file, so no data descriptors).
 /// Entries are STORED (np.savez) or raw-DEFLATE (np.savez_compressed), which
-/// is inflated here. Returns (name, raw bytes) pairs in file order; entry
-/// names keep their ".npy" suffix.
+/// is inflated here. Modern numpy opens members with `force_zip64` — the
+/// 32-bit size fields then hold the 0xFFFFFFFF sentinel and the real sizes
+/// live in a ZIP64 extra field (id 0x0001). Returns (name, raw bytes) pairs
+/// in file order; entry names keep their ".npy" suffix.
 pub fn read_npz(path: &Path) -> Vec<(String, Vec<u8>)> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let mut entries = Vec::new();
@@ -145,7 +147,8 @@ pub fn read_npz(path: &Path) -> Vec<(String, Vec<u8>)> {
     while off + 30 <= bytes.len() && bytes[off..off + 4] == [0x50, 0x4b, 0x03, 0x04] {
         let flags = u16::from_le_bytes([bytes[off + 6], bytes[off + 7]]);
         let method = u16::from_le_bytes([bytes[off + 8], bytes[off + 9]]);
-        let csize = u32::from_le_bytes(bytes[off + 18..off + 22].try_into().unwrap()) as usize;
+        let mut csize = u32::from_le_bytes(bytes[off + 18..off + 22].try_into().unwrap()) as usize;
+        let usize32 = u32::from_le_bytes(bytes[off + 22..off + 26].try_into().unwrap());
         let name_len = u16::from_le_bytes([bytes[off + 26], bytes[off + 27]]) as usize;
         let extra_len = u16::from_le_bytes([bytes[off + 28], bytes[off + 29]]) as usize;
         assert_eq!(
@@ -156,6 +159,30 @@ pub fn read_npz(path: &Path) -> Vec<(String, Vec<u8>)> {
         );
         let name = String::from_utf8(bytes[off + 30..off + 30 + name_len].to_vec())
             .expect("bad zip entry name");
+        if csize == 0xFFFF_FFFF {
+            // ZIP64: [id 0x0001][len][uncompressed u64][compressed u64] — the
+            // local-header variant carries both u64s (APPNOTE 4.5.3), the
+            // uncompressed size first.
+            let extra_start = off + 30 + name_len;
+            let extra = &bytes[extra_start..extra_start + extra_len];
+            let mut e = 0usize;
+            let mut found = false;
+            while e + 4 <= extra.len() {
+                let id = u16::from_le_bytes([extra[e], extra[e + 1]]);
+                let sz = u16::from_le_bytes([extra[e + 2], extra[e + 3]]) as usize;
+                if id == 0x0001 {
+                    // Skip the uncompressed u64 if it is also sentineled in.
+                    let c_off = if usize32 == 0xFFFF_FFFF { e + 12 } else { e + 4 };
+                    csize = u64::from_le_bytes(
+                        extra[c_off..c_off + 8].try_into().unwrap(),
+                    ) as usize;
+                    found = true;
+                    break;
+                }
+                e += 4 + sz;
+            }
+            assert!(found, "{}: {name}: ZIP64 sizes but no 0x0001 extra", path.display());
+        }
         let data_start = off + 30 + name_len + extra_len;
         let raw = &bytes[data_start..data_start + csize];
         let data = match method {

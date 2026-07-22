@@ -77,6 +77,15 @@ module.exports = {
               from: '../serving/sidecar/target/release/cadmium-sidecar',
               to: 'sidecar/cadmium-sidecar',
             },
+            {
+              // ONNX Runtime dylib the sidecar dlopens (ort load-dynamic):
+              // the ort crate's static binary is 1.24 but ORT >= 1.25 runs
+              // CoreML ~3x faster. Fetched by
+              // serving/sidecar/scripts/fetch-ort-dylib.sh; the sidecar looks
+              // for libonnxruntime*.dylib next to its own binary.
+              from: '../serving/sidecar/vendor/libonnxruntime.1.27.0.dylib',
+              to: 'sidecar/libonnxruntime.1.27.0.dylib',
+            },
           ],
           // Ad-hoc-signed local builds (no Developer ID cert in the env)
           // cannot use the hardened runtime: library validation rejects the

@@ -3,6 +3,7 @@
 //! layer (`serve`) that assembles them behind the production contract.
 
 pub mod goldens;
+pub mod ort_dylib;
 pub mod imageprep;
 pub mod postprocess;
 pub mod segment;

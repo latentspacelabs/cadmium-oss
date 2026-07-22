@@ -98,6 +98,8 @@ jobs:
       - name: Build sidecar (release)
         working-directory: serving/sidecar
         run: cargo build --release --bin cadmium-sidecar
+      - name: Fetch ONNX Runtime dylib (load-dynamic)
+        run: serving/sidecar/scripts/fetch-ort-dylib.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 20

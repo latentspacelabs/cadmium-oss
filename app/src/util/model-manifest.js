@@ -30,12 +30,14 @@ const MODEL_FILES = [
     required: true,
   },
   {
-    // AnT colorizer with bucket-pinned shapes — the CoreML fast path
+    // AnT colorizer with bucket-pinned shapes (256 slots / 64 rows / 8192
+    // flat / 512 tokens — covers ~150 average-complexity segments; bigger
+    // drawings fall back to the dynamic CPU session) — the CoreML fast path
     // (--ant-model-bucket). Optional and macOS-only: without it the sidecar
     // still serves every request via the dynamic model.
     file: 'ant_v2_fp32_bucket.onnx',
-    bytes: 1388609892,
-    sha256: '42b3cfd3bcfd23beef9ef4eea282127145a3bd177dca533bd6d5ccd51b4b3275',
+    bytes: 1388609979,
+    sha256: 'af4a4194362fd6ef81d6df2d8d653372da3265471aa19dfceaab5f97c443e30d',
     required: false,
     platform: 'darwin',
   },

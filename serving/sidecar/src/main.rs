@@ -66,6 +66,12 @@ struct Args {
     #[arg(long, value_name = "PATH.onnx")]
     gap_model_bucket: Option<PathBuf>,
 
+    /// Directory where CoreML persists compiled models (created if absent).
+    /// Without it every process start recompiles the AnT bucket (~107s on an
+    /// M3); with it the compile happens once per machine, then ~20s reloads.
+    #[arg(long, value_name = "DIR")]
+    coreml_cache_dir: Option<PathBuf>,
+
     /// Exit when stdin reaches EOF. A supervising parent (the Electron app)
     /// spawns us with stdin as a pipe; if the parent dies by ANY means —
     /// including SIGKILL, which fires no quit hooks — the OS closes the
@@ -87,6 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+
+    // macOS: resolve the ONNX Runtime dylib (load-dynamic) before anything
+    // can touch the ort API — a session build would otherwise panic inside
+    // ort's lazy dlopen with an unreadable error.
+    cadmium_sidecar::ort_dylib::init()?;
 
     if args.exit_on_stdin_close {
         std::thread::spawn(|| {
@@ -141,7 +152,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.ant_model_bucket,
         args.ant_model_tiled,
         args.ep,
+        args.coreml_cache_dir,
     )?);
+    // Compile the CoreML sessions in the background so the first /segment
+    // and /colorize don't pay for them; requests during the build serve
+    // from the CPU sessions.
+    engine.prewarm();
     let app = serve::router(engine);
 
     let addr = SocketAddr::new(args.host, args.port);

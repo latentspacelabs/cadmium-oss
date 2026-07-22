@@ -33,7 +33,8 @@
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use ort::ep::CPU;
@@ -110,12 +111,23 @@ struct BucketState {
     warmed: bool,
 }
 
+/// `ant_bucket_gate` states: the AnT bucket's CoreML build takes ~107s cold
+/// (~20s from the model cache), so requests must never block behind it.
+/// IDLE means no prewarm was requested (verify harnesses): the request builds
+/// the session inline, blocking — the sidecar itself always prewarms.
+const GATE_IDLE: u8 = 0;
+const GATE_BUILDING: u8 = 1;
+const GATE_READY: u8 = 2;
+const GATE_FAILED: u8 = 3;
+
 pub struct Engine {
     pub gap_model_path: Option<PathBuf>,
     pub gap_bucket_model_path: Option<PathBuf>,
     pub ant_model_path: Option<PathBuf>,
     pub ant_bucket_model_path: Option<PathBuf>,
     pub ant_tiled_model_path: Option<PathBuf>,
+    /// Where CoreML persists compiled models (--coreml-cache-dir).
+    coreml_cache_dir: Option<PathBuf>,
     ant_ep: AntEp,
     gap_ep: GapEp,
     /// Dynamic GapCloser model on the CPU EP (one tile per forward).
@@ -128,6 +140,10 @@ pub struct Engine {
     ant: Mutex<Option<Session>>,
     /// Bucket-pinned AnT model on the CoreML EP.
     ant_bucket: Mutex<Option<BucketState>>,
+    /// GATE_* — colorize serves from the dynamic CPU session while the
+    /// bucket session is BUILDING (or after a FAILED build) instead of
+    /// blocking behind the compile.
+    ant_bucket_gate: AtomicU8,
 }
 
 fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
@@ -150,21 +166,27 @@ fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
 /// units ALL, CPU EP fallback for any unsupported partitions.
 /// `error_on_failure` so a misconfigured CoreML EP fails loudly instead of
 /// silently serving from the CPU (the goldens would still pass and hide it).
+/// With `cache_dir`, the compiled CoreML model is persisted there — the AnT
+/// bucket's ~107s compile happens once per machine, then reloads in ~20s.
 #[cfg(target_os = "macos")]
-fn build_coreml_session(what: &str, path: &Path) -> Result<Session, String> {
+fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Result<Session, String> {
     use ort::ep::coreml::{ComputeUnits, ModelFormat};
 
+    if let Some(dir) = cache_dir {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            tracing::warn!(dir = %dir.display(), error = %e, "cannot create CoreML cache dir; compiling uncached");
+        }
+    }
     let t0 = Instant::now();
     let session = (|| {
+        let mut ep = ort::ep::CoreML::default()
+            .with_model_format(ModelFormat::MLProgram)
+            .with_compute_units(ComputeUnits::All);
+        if let Some(dir) = cache_dir.filter(|d| d.is_dir()) {
+            ep = ep.with_model_cache_dir(dir.display());
+        }
         Session::builder()?
-            .with_execution_providers([
-                ort::ep::CoreML::default()
-                    .with_model_format(ModelFormat::MLProgram)
-                    .with_compute_units(ComputeUnits::All)
-                    .build()
-                    .error_on_failure(),
-                CPU::default().build(),
-            ])?
+            .with_execution_providers([ep.build().error_on_failure(), CPU::default().build()])?
             .commit_from_file(path)
     })()
     .map_err(|e| format!("failed to load {what} model {}: {e}", path.display()))?;
@@ -177,7 +199,7 @@ fn build_coreml_session(what: &str, path: &Path) -> Result<Session, String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn build_coreml_session(_what: &str, _path: &Path) -> Result<Session, String> {
+fn build_coreml_session(_what: &str, _path: &Path, _cache_dir: Option<&Path>) -> Result<Session, String> {
     Err("CoreML EP is only compiled into macOS builds".into())
 }
 
@@ -218,6 +240,7 @@ impl Engine {
         ant_bucket_model_path: Option<PathBuf>,
         ant_tiled_model_path: Option<PathBuf>,
         ep: EpSelect,
+        coreml_cache_dir: Option<PathBuf>,
     ) -> Result<Engine, String> {
         let ant_ep = match ep {
             EpSelect::Cpu => AntEp::Cpu,
@@ -274,13 +297,75 @@ impl Engine {
             ant_model_path,
             ant_bucket_model_path,
             ant_tiled_model_path,
+            coreml_cache_dir,
             ant_ep,
             gap_ep,
             gap: Mutex::new(None),
             gap_coreml: Mutex::new(None),
             ant: Mutex::new(None),
             ant_bucket: Mutex::new(None),
+            ant_bucket_gate: AtomicU8::new(GATE_IDLE),
         })
+    }
+
+    /// Build the CoreML sessions in a background thread so the first user
+    /// request doesn't pay for them: the GapCloser bucket compiles in ~3s,
+    /// the AnT bucket in ~107s cold / ~20s from the model cache. While the
+    /// AnT build is in flight (or if it failed), `run_ant` serves from the
+    /// dynamic CPU session — colorize is never worse than the CPU-only path.
+    /// No-op unless the resolved plan actually uses CoreML.
+    pub fn prewarm(self: &Arc<Self>) {
+        let coreml_wanted =
+            self.gap_ep == GapEp::CoreMl || self.ant_ep == AntEp::CoreMlBucket;
+        if !coreml_wanted {
+            return;
+        }
+        let engine = Arc::clone(self);
+        std::thread::spawn(move || {
+            if engine.gap_ep == GapEp::CoreMl {
+                if let (Some(path), Ok(mut guard)) =
+                    (engine.gap_bucket_model_path.clone(), engine.gap_coreml.lock())
+                {
+                    if guard.is_none() {
+                        match build_coreml_session(
+                            "GapCloser bucket",
+                            &path,
+                            engine.coreml_cache_dir.as_deref(),
+                        ) {
+                            Ok(session) => *guard = Some(session),
+                            // Not fatal: run_gap_coreml retries lazily and
+                            // falls back to the CPU EP per request.
+                            Err(e) => tracing::warn!(error = %e, "GapCloser prewarm failed"),
+                        }
+                    }
+                }
+            }
+            if engine.ant_ep == AntEp::CoreMlBucket
+                && engine
+                    .ant_bucket_gate
+                    .compare_exchange(GATE_IDLE, GATE_BUILDING, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            {
+                let gate = match engine.build_ant_bucket_state() {
+                    Ok(state) => {
+                        if let Ok(mut guard) = engine.ant_bucket.lock() {
+                            *guard = Some(state);
+                            GATE_READY
+                        } else {
+                            GATE_FAILED
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "AnT bucket prewarm failed; colorize stays on the dynamic CPU session"
+                        );
+                        GATE_FAILED
+                    }
+                };
+                engine.ant_bucket_gate.store(gate, Ordering::SeqCst);
+            }
+        });
     }
 
     fn ep_label(ep: AntEp) -> &'static str {
@@ -362,7 +447,11 @@ impl Engine {
         };
         let mut guard = self.gap_coreml.lock().map_err(|_| "gap coreml session poisoned")?;
         if guard.is_none() {
-            *guard = Some(build_coreml_session("GapCloser bucket", path)?);
+            *guard = Some(build_coreml_session(
+                "GapCloser bucket",
+                path,
+                self.coreml_cache_dir.as_deref(),
+            )?);
         }
         let session = guard.as_mut().unwrap();
         let tile_len = TILE_SIZE * TILE_SIZE;
@@ -406,16 +495,31 @@ impl Engine {
     pub fn run_ant(&self, feed: &AntFeed) -> Result<(Vec<usize>, Vec<f32>), String> {
         match self.ant_ep {
             AntEp::Cpu | AntEp::Dml => self.run_ant_dynamic(feed),
-            AntEp::CoreMlBucket => match pad_feed_to_bucket(feed, &CORPUS_BUCKET) {
-                Ok(padded) => self.run_ant_bucket(&padded),
-                Err(why) => {
-                    tracing::warn!(
-                        %why,
-                        "feed exceeds CORPUS_BUCKET; falling back to the dynamic CPU session"
-                    );
-                    self.run_ant_dynamic(feed)
+            AntEp::CoreMlBucket => {
+                // While a prewarm is compiling the bucket session (or after
+                // it failed), serve from the dynamic CPU session instead of
+                // blocking this request behind a ~20-107s build.
+                match self.ant_bucket_gate.load(Ordering::SeqCst) {
+                    GATE_BUILDING => {
+                        tracing::info!(
+                            "CoreML bucket session still building; serving from the CPU session"
+                        );
+                        return self.run_ant_dynamic(feed);
+                    }
+                    GATE_FAILED => return self.run_ant_dynamic(feed),
+                    _ => {}
                 }
-            },
+                match pad_feed_to_bucket(feed, &CORPUS_BUCKET) {
+                    Ok(padded) => self.run_ant_bucket(&padded),
+                    Err(why) => {
+                        tracing::warn!(
+                            %why,
+                            "feed exceeds CORPUS_BUCKET; falling back to the dynamic CPU session"
+                        );
+                        self.run_ant_dynamic(feed)
+                    }
+                }
+            }
         }
     }
 
@@ -464,24 +568,40 @@ impl Engine {
         build_cpu_session("AnT v2 (dynamic)", path)
     }
 
-    /// Bucket-pinned AnT session on CoreML, built on first use. `feed` must
-    /// already be bucket-padded.
-    fn run_ant_bucket(&self, feed: &AntFeed) -> Result<(Vec<usize>, Vec<f32>), String> {
+    /// Build the bucket-pinned CoreML session (the expensive step behind
+    /// `ant_bucket_gate`).
+    fn build_ant_bucket_state(&self) -> Result<BucketState, String> {
         let Some(path) = &self.ant_bucket_model_path else {
             return Err(
                 "no bucket AnT model configured (start the sidecar with --ant-model-bucket)"
                     .into(),
             );
         };
+        Ok(BucketState {
+            session: build_coreml_session("AnT bucket", path, self.coreml_cache_dir.as_deref())?,
+            warmed: false,
+        })
+    }
+
+    /// Bucket-pinned AnT session on CoreML, built on first use when no
+    /// prewarm ran (gate IDLE — verify harnesses; the build blocks the
+    /// request). `feed` must already be bucket-padded.
+    fn run_ant_bucket(&self, feed: &AntFeed) -> Result<(Vec<usize>, Vec<f32>), String> {
         let mut guard = self
             .ant_bucket
             .lock()
             .map_err(|_| "ant bucket session poisoned")?;
         if guard.is_none() {
-            *guard = Some(BucketState {
-                session: build_coreml_session("AnT bucket", path)?,
-                warmed: false,
-            });
+            match self.build_ant_bucket_state() {
+                Ok(state) => {
+                    *guard = Some(state);
+                    self.ant_bucket_gate.store(GATE_READY, Ordering::SeqCst);
+                }
+                Err(e) => {
+                    self.ant_bucket_gate.store(GATE_FAILED, Ordering::SeqCst);
+                    return Err(e);
+                }
+            }
         }
         let state = guard.as_mut().unwrap();
         let t0 = Instant::now();

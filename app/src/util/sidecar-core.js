@@ -11,6 +11,7 @@
  *                   [--ant-model-bucket <ant_v2_fp32_bucket.onnx>]
  *                   [--ant-model-tiled <ant_v2_fp32_tiledscatter.onnx>]
  *                   [--gap-model-bucket <gap_closer_fp32_bucket.onnx>]
+ *                   [--coreml-cache-dir <dir>]
  *                   --ep auto|cpu|coreml|dml
  *   GET /health answers 200 once the server is listening (ONNX sessions are
  *   built lazily on first use, so "listening" is the readiness signal).
@@ -86,6 +87,9 @@ export function resolveSidecarPaths({
     antBucketModelPath: path.join(modelsDir, MODEL_ANT_BUCKET),
     antTiledModelPath: path.join(modelsDir, MODEL_ANT_TILED),
     gapBucketModelPath: path.join(modelsDir, MODEL_GAP_BUCKET),
+    // Where CoreML persists compiled models (macOS): the AnT bucket compiles
+    // once (~107s, background) then reloads in ~20s per process start.
+    coremlCacheDir: path.join(userDataPath, 'sidecar', 'coreml-cache'),
   };
 }
 
@@ -117,7 +121,7 @@ export function missingSidecarFiles(paths, existsFn) {
  */
 export function buildSidecarArgs({
   port, antModelPath, gapModelPath, antBucketModelPath = null, antTiledModelPath = null,
-  gapBucketModelPath = null,
+  gapBucketModelPath = null, coremlCacheDir = null,
 }) {
   const args = [
     '--port', String(port),
@@ -138,6 +142,9 @@ export function buildSidecarArgs({
   }
   if (gapBucketModelPath) {
     args.push('--gap-model-bucket', gapBucketModelPath);
+  }
+  if (coremlCacheDir) {
+    args.push('--coreml-cache-dir', coremlCacheDir);
   }
   return args;
 }

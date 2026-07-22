@@ -3,6 +3,7 @@ import {
   isEmbeddedTargetSupported,
   classifyGpu,
   DISK_HEADROOM_BYTES,
+  COREML_CACHE_BYTES,
   RAM_RECOMMENDED_BYTES,
 } from '@/util/embedded-capability';
 
@@ -76,8 +77,8 @@ describe('evaluateEmbeddedCapability — disk', () => {
     expect(v.supported).toBe(false);
   });
 
-  it('warns when free space clears the download but not the headroom', () => {
-    const free = NEEDED + DISK_HEADROOM_BYTES - 1;
+  it('warns when free space clears the needs (download + mac CoreML cache) but not the headroom', () => {
+    const free = NEEDED + COREML_CACHE_BYTES + DISK_HEADROOM_BYTES - 1;
     const caps = { ...OK_MAC, freeDiskBytes: free };
     const v = evaluateEmbeddedCapability(caps, { neededBytes: NEEDED });
     expect(v.checks.disk.status).toBe('warn');
@@ -85,10 +86,25 @@ describe('evaluateEmbeddedCapability — disk', () => {
     expect(v.supported).toBe(true); // a warning never blocks
   });
 
-  it('passes when the models are already present (neededBytes 0), even on a tight disk', () => {
+  it('macOS still needs the CoreML cache allowance when the models are already present', () => {
+    // neededBytes 0 (models downloaded) but the compiled-model cache is real
+    // disk the sidecar will consume — a near-full volume is a blocker.
     const v = evaluateEmbeddedCapability({ ...OK_MAC, freeDiskBytes: 2 * GB }, { neededBytes: 0 });
+    expect(v.checks.disk.status).toBe('blocked');
+    const ok = evaluateEmbeddedCapability(
+      { ...OK_MAC, freeDiskBytes: COREML_CACHE_BYTES + DISK_HEADROOM_BYTES },
+      { neededBytes: 0 },
+    );
+    expect(ok.checks.disk.status).toBe('ok');
+    expect(ok.supported).toBe(true);
+  });
+
+  it('win32 carries no CoreML cache allowance', () => {
+    const win = {
+      ...OK_MAC, platform: 'win32', arch: 'x64', freeDiskBytes: 2 * GB,
+    };
+    const v = evaluateEmbeddedCapability(win, { neededBytes: 0 });
     expect(v.checks.disk.status).toBe('ok');
-    expect(v.supported).toBe(true);
   });
 
   it('reports unknown (and does not block) when free space could not be probed', () => {

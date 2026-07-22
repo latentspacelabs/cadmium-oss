@@ -29,6 +29,10 @@ export const EMBEDDED_SUPPORTED_TARGETS = [
 const GB = 1e9;
 // Headroom above the raw download so the models don't fill the volume to the brim.
 export const DISK_HEADROOM_BYTES = 1 * GB;
+// macOS: CoreML persists compiled models to the sidecar cache dir (~4.4 GB
+// for the AnT bucket + GapCloser bucket on an M3) — counted as needed space
+// so the compile doesn't fill the volume after a passing check.
+export const COREML_CACHE_BYTES = 5 * GB;
 // The embedded backend loads a ~1.4 GB fp32 model plus activations. Below the
 // recommended figure it leans on swap and gets slow; it is a warning, never a
 // blocker (a machine with little RAM can still limp along on the CPU EP).
@@ -67,7 +71,10 @@ export function evaluateEmbeddedCapability(caps, { neededBytes = 0 } = {}) {
   const c = caps || {};
   const platform = c.platform || '';
   const arch = c.arch || '';
-  const needed = Math.max(0, Number(neededBytes) || 0);
+  // On macOS the CoreML model cache is real disk the embedded backend will
+  // consume beyond the download itself.
+  const cacheBytes = platform === 'darwin' ? COREML_CACHE_BYTES : 0;
+  const needed = Math.max(0, Number(neededBytes) || 0) + cacheBytes;
 
   const checks = {};
   const blockers = [];
