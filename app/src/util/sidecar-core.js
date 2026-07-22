@@ -10,6 +10,7 @@
  *                   --gap-model <gap_closer_fp32.onnx>
  *                   [--ant-model-bucket <ant_v2_fp32_bucket.onnx>]
  *                   [--ant-model-tiled <ant_v2_fp32_tiledscatter.onnx>]
+ *                   [--gap-model-bucket <gap_closer_fp32_bucket.onnx>]
  *                   --ep auto|cpu|coreml|dml
  *   GET /health answers 200 once the server is listening (ONNX sessions are
  *   built lazily on first use, so "listening" is the readiness signal).
@@ -32,6 +33,8 @@ export const MODEL_GAP = 'gap_closer_fp32.onnx';
 export const MODEL_ANT_BUCKET = 'ant_v2_fp32_bucket.onnx';
 // Optional: the tiled-scatter export that enables the DirectML fast path.
 export const MODEL_ANT_TILED = 'ant_v2_fp32_tiledscatter.onnx';
+// Optional: the batch-pinned GapCloser export that enables the CoreML gap path.
+export const MODEL_GAP_BUCKET = 'gap_closer_fp32_bucket.onnx';
 
 export const SIDECAR_BIN_BASENAME = 'cadmium-sidecar';
 
@@ -82,6 +85,7 @@ export function resolveSidecarPaths({
     gapModelPath: path.join(modelsDir, MODEL_GAP),
     antBucketModelPath: path.join(modelsDir, MODEL_ANT_BUCKET),
     antTiledModelPath: path.join(modelsDir, MODEL_ANT_TILED),
+    gapBucketModelPath: path.join(modelsDir, MODEL_GAP_BUCKET),
   };
 }
 
@@ -113,6 +117,7 @@ export function missingSidecarFiles(paths, existsFn) {
  */
 export function buildSidecarArgs({
   port, antModelPath, gapModelPath, antBucketModelPath = null, antTiledModelPath = null,
+  gapBucketModelPath = null,
 }) {
   const args = [
     '--port', String(port),
@@ -130,6 +135,9 @@ export function buildSidecarArgs({
   }
   if (antTiledModelPath) {
     args.push('--ant-model-tiled', antTiledModelPath);
+  }
+  if (gapBucketModelPath) {
+    args.push('--gap-model-bucket', gapBucketModelPath);
   }
   return args;
 }

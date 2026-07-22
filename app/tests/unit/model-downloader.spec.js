@@ -22,18 +22,20 @@ import { ModelDownloader } from '@/model-downloader';
 describe('wantedModelFiles', () => {
   const required = MODEL_FILES.filter((m) => m.required).map((m) => m.file);
 
-  it('darwin wants the required models + the macOS bucket model, not the Windows tiled model', () => {
+  it('darwin wants the required models + the macOS bucket models, not the Windows tiled model', () => {
     const files = wantedModelFiles('darwin').map((m) => m.file);
     required.forEach((f) => expect(files).toContain(f));
     expect(files).toContain('ant_v2_fp32_bucket.onnx');
+    expect(files).toContain('gap_closer_fp32_bucket.onnx');
     expect(files).not.toContain('ant_v2_fp32_tiledscatter.onnx');
   });
 
-  it('win32 wants the required models + the Windows tiled model, not the macOS bucket model', () => {
+  it('win32 wants the required models + the Windows tiled model, not the macOS bucket models', () => {
     const files = wantedModelFiles('win32').map((m) => m.file);
     required.forEach((f) => expect(files).toContain(f));
     expect(files).toContain('ant_v2_fp32_tiledscatter.onnx');
     expect(files).not.toContain('ant_v2_fp32_bucket.onnx');
+    expect(files).not.toContain('gap_closer_fp32_bucket.onnx');
   });
 });
 

@@ -65,6 +65,18 @@ const MODEL_FILES = [
     sha256: '3a9a792f72fd3451c36145a0657328e333d6e5e982f0760b5e5a6e7e9934d327',
     required: true,
   },
+  {
+    // GapCloser with the batch dim pinned to 24 tiles — the CoreML fast path
+    // for /segment gap closing (--gap-model-bucket). Same weights as
+    // gap_closer_fp32.onnx, only the input shape differs. Optional and
+    // macOS-only: without it (or off macOS) gap closing runs one tile at a
+    // time on the CPU EP (~20s on high-res drawings vs ~1.3s batched CoreML).
+    file: 'gap_closer_fp32_bucket.onnx',
+    bytes: 497519867,
+    sha256: '1f1966b41c04a8b406ff8d16c54cbfa3354e5aec3d196507861f211beeb36e0d',
+    required: false,
+    platform: 'darwin',
+  },
 ];
 
 function modelUrl(file) {

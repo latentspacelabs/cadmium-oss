@@ -60,6 +60,12 @@ struct Args {
     #[arg(long, value_name = "PATH.onnx")]
     gap_model: Option<PathBuf>,
 
+    /// Batch-pinned GapCloser export (fixed batch dim) for the CoreML EP;
+    /// enables the macOS `auto`/`coreml` fast path for /segment gap closing.
+    /// Without it, gap closing runs one tile at a time on the CPU EP.
+    #[arg(long, value_name = "PATH.onnx")]
+    gap_model_bucket: Option<PathBuf>,
+
     /// Exit when stdin reaches EOF. A supervising parent (the Electron app)
     /// spawns us with stdin as a pipe; if the parent dies by ANY means —
     /// including SIGKILL, which fires no quit hooks — the OS closes the
@@ -130,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let engine = Arc::new(Engine::new(
         args.gap_model,
+        args.gap_model_bucket,
         args.ant_model,
         args.ant_model_bucket,
         args.ant_model_tiled,

@@ -6,6 +6,7 @@ import {
   MODEL_GAP,
   MODEL_ANT_BUCKET,
   MODEL_ANT_TILED,
+  MODEL_GAP_BUCKET,
   resolveSidecarPaths,
   missingSidecarFiles,
   buildSidecarArgs,
@@ -41,6 +42,7 @@ describe('resolveSidecarPaths', () => {
     expect(paths.gapModelPath).toBe(`/ud/models/${MODEL_GAP}`);
     expect(paths.antBucketModelPath).toBe(`/ud/models/${MODEL_ANT_BUCKET}`);
     expect(paths.antTiledModelPath).toBe(`/ud/models/${MODEL_ANT_TILED}`);
+    expect(paths.gapBucketModelPath).toBe(`/ud/models/${MODEL_GAP_BUCKET}`);
   });
 
   it('packaged windows: binary name gains .exe', () => {
@@ -161,6 +163,15 @@ describe('buildSidecarArgs', () => {
     expect(args.slice(-2)).toEqual(['--ant-model-tiled', '/m/tiled.onnx']);
     expect(buildSidecarArgs({ port: 1, antModelPath: 'a', gapModelPath: 'g' }))
       .not.toContain('--ant-model-tiled');
+  });
+
+  it('adds --gap-model-bucket only when a gap bucket model is supplied', () => {
+    const args = buildSidecarArgs({
+      port: 1, antModelPath: 'a', gapModelPath: 'g', gapBucketModelPath: '/m/gapb.onnx',
+    });
+    expect(args.slice(-2)).toEqual(['--gap-model-bucket', '/m/gapb.onnx']);
+    expect(buildSidecarArgs({ port: 1, antModelPath: 'a', gapModelPath: 'g' }))
+      .not.toContain('--gap-model-bucket');
   });
 });
 

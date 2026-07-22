@@ -316,6 +316,9 @@ export class SidecarManager {
       antTiledModelPath: this.existsFn(this.paths.antTiledModelPath)
         ? this.paths.antTiledModelPath
         : null,
+      gapBucketModelPath: this.existsFn(this.paths.gapBucketModelPath)
+        ? this.paths.gapBucketModelPath
+        : null,
     });
 
     let child;

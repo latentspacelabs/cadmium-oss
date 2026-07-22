@@ -24,8 +24,12 @@
 //!             supplied; dml when running on Windows with `--ant-model-tiled`
 //!             supplied; else cpu.
 //!
-//! The GapCloser stays on the CPU EP regardless of `--ep` (2.6 s per
-//! /segment is acceptable; moving it to CoreML is a follow-up).
+//! The GapCloser (`/segment` with strength > 0) runs on CoreML on macOS when
+//! its batch-pinned export (`--gap-model-bucket`) is supplied under the
+//! coreml/auto EP — the 512x512 tiles are forwarded in fixed batches of
+//! `GAP_COREML_BATCH` (~16x faster than the CPU EP on a high-res drawing).
+//! Otherwise (no bucket export, non-macOS, or a CoreML init failure) it runs
+//! on the CPU EP, one tile at a time.
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -36,9 +40,16 @@ use ort::ep::CPU;
 use ort::session::Session;
 use ort::value::Tensor as OrtTensor;
 
+use crate::segment::tiled::TILE_SIZE;
+use crate::segment::tiler::PlaneF32;
 use crate::tokenize::bucket::{pad_feed_to_bucket, CORPUS_BUCKET};
 use crate::tokenize::feed::AntFeed;
 use crate::tokenize::Tensor;
+
+/// The batch the CoreML gap-closer export (`--gap-model-bucket`) is pinned to.
+/// Tiles are forwarded in chunks of this size, padding the final short chunk
+/// (conv is per-sample, so the pad tiles never affect the real ones).
+const GAP_COREML_BATCH: usize = 24;
 
 // ---------------------------------------------------------------------------
 // EP selection
@@ -80,6 +91,15 @@ enum AntEp {
     Dml,
 }
 
+/// The resolved GapCloser serving plan (per-process, decided at startup).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GapEp {
+    /// Dynamic model, CPU EP, one 512x512 tile per forward.
+    Cpu,
+    /// Batch-pinned model on CoreML; falls back to CPU on a CoreML init error.
+    CoreMl,
+}
+
 // ---------------------------------------------------------------------------
 // engine
 
@@ -92,11 +112,16 @@ struct BucketState {
 
 pub struct Engine {
     pub gap_model_path: Option<PathBuf>,
+    pub gap_bucket_model_path: Option<PathBuf>,
     pub ant_model_path: Option<PathBuf>,
     pub ant_bucket_model_path: Option<PathBuf>,
     pub ant_tiled_model_path: Option<PathBuf>,
     ant_ep: AntEp,
+    gap_ep: GapEp,
+    /// Dynamic GapCloser model on the CPU EP (one tile per forward).
     gap: Mutex<Option<Session>>,
+    /// Batch-pinned GapCloser model on the CoreML EP (batched tiles).
+    gap_coreml: Mutex<Option<Session>>,
     /// The non-CoreML AnT session: the dynamic model on the CPU EP, or (when
     /// `ant_ep` is Dml) the tiled model on DirectML — with a lazy fallback to
     /// the dynamic model on the CPU EP if DirectML can't initialize.
@@ -126,7 +151,7 @@ fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
 /// `error_on_failure` so a misconfigured CoreML EP fails loudly instead of
 /// silently serving from the CPU (the goldens would still pass and hide it).
 #[cfg(target_os = "macos")]
-fn build_coreml_session(path: &Path) -> Result<Session, String> {
+fn build_coreml_session(what: &str, path: &Path) -> Result<Session, String> {
     use ort::ep::coreml::{ComputeUnits, ModelFormat};
 
     let t0 = Instant::now();
@@ -142,17 +167,17 @@ fn build_coreml_session(path: &Path) -> Result<Session, String> {
             ])?
             .commit_from_file(path)
     })()
-    .map_err(|e| format!("failed to load bucket AnT model {}: {e}", path.display()))?;
+    .map_err(|e| format!("failed to load {what} model {}: {e}", path.display()))?;
     tracing::info!(
         model = %path.display(),
         load_ms = t0.elapsed().as_millis() as u64,
-        "AnT bucket ONNX session created (CoreML EP, MLProgram, compute units ALL)"
+        "{what} ONNX session created (CoreML EP, MLProgram, compute units ALL)"
     );
     Ok(session)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn build_coreml_session(_path: &Path) -> Result<Session, String> {
+fn build_coreml_session(_what: &str, _path: &Path) -> Result<Session, String> {
     Err("CoreML EP is only compiled into macOS builds".into())
 }
 
@@ -188,6 +213,7 @@ fn build_dml_session(_what: &str, _path: &Path) -> Result<Session, String> {
 impl Engine {
     pub fn new(
         gap_model_path: Option<PathBuf>,
+        gap_bucket_model_path: Option<PathBuf>,
         ant_model_path: Option<PathBuf>,
         ant_bucket_model_path: Option<PathBuf>,
         ant_tiled_model_path: Option<PathBuf>,
@@ -227,14 +253,31 @@ impl Engine {
                 AntEp::Dml
             }
         };
-        tracing::info!(ep = Self::ep_label(ant_ep), "AnT execution provider resolved");
+        // GapCloser: CoreML on macOS under coreml/auto when its batch-pinned
+        // export is supplied; CPU everywhere else.
+        let gap_ep = if cfg!(target_os = "macos")
+            && gap_bucket_model_path.is_some()
+            && matches!(ep, EpSelect::Auto | EpSelect::CoreMl)
+        {
+            GapEp::CoreMl
+        } else {
+            GapEp::Cpu
+        };
+        tracing::info!(
+            ant_ep = Self::ep_label(ant_ep),
+            gap_ep = if gap_ep == GapEp::CoreMl { "coreml" } else { "cpu" },
+            "execution providers resolved"
+        );
         Ok(Engine {
             gap_model_path,
+            gap_bucket_model_path,
             ant_model_path,
             ant_bucket_model_path,
             ant_tiled_model_path,
             ant_ep,
+            gap_ep,
             gap: Mutex::new(None),
+            gap_coreml: Mutex::new(None),
             ant: Mutex::new(None),
             ant_bucket: Mutex::new(None),
         })
@@ -269,6 +312,89 @@ impl Engine {
             *guard = Some(build_cpu_session("gap-closer", path)?);
         }
         f(guard.as_mut().unwrap()).map(Some)
+    }
+
+    /// Run the GapCloser UDF net over every 512x512 tile, returning one udf
+    /// plane (`TILE_SIZE*TILE_SIZE` f32) per input tile, in order. `Ok(None)`
+    /// when no gap model is configured (the caller does trapped-ball only).
+    /// On the CoreML plan tiles are forwarded in fixed batches; a CoreML
+    /// build/init error falls back to the CPU EP.
+    pub fn run_gap_udfs(&self, tiles: &[PlaneF32]) -> Result<Option<Vec<Vec<f32>>>, String> {
+        if self.gap_ep == GapEp::CoreMl {
+            match self.run_gap_coreml(tiles) {
+                Ok(udfs) => return Ok(Some(udfs)),
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "CoreML gap-closer unavailable; falling back to the CPU EP"
+                ),
+            }
+        }
+        self.run_gap_cpu(tiles)
+    }
+
+    /// CPU EP: dynamic gap session (built on first use), one 512x512 tile per
+    /// forward — the byte-exact golden path. `Ok(None)` when unconfigured.
+    fn run_gap_cpu(&self, tiles: &[PlaneF32]) -> Result<Option<Vec<Vec<f32>>>, String> {
+        self.with_gap_session(|session| {
+            let mut udfs = Vec::with_capacity(tiles.len());
+            for tile in tiles {
+                let tensor = OrtTensor::from_array(([1usize, 1, tile.h, tile.w], tile.data.clone()))
+                    .map_err(|e| format!("gap tile tensor: {e}"))?;
+                let outputs = session
+                    .run(ort::inputs!["tiles" => tensor])
+                    .map_err(|e| format!("gap-closer forward: {e}"))?;
+                let (_, out) = outputs.iter().next().ok_or("gap-closer produced no outputs")?;
+                let (_, udf) = out
+                    .try_extract_tensor::<f32>()
+                    .map_err(|e| format!("gap-closer output: {e}"))?;
+                udfs.push(udf.to_vec());
+            }
+            Ok(udfs)
+        })
+    }
+
+    /// CoreML EP: batch-pinned gap session (built on first use), tiles
+    /// forwarded in chunks of `GAP_COREML_BATCH`, the last chunk zero-padded
+    /// (conv is per-sample, so pad tiles don't touch the real outputs).
+    fn run_gap_coreml(&self, tiles: &[PlaneF32]) -> Result<Vec<Vec<f32>>, String> {
+        let Some(path) = &self.gap_bucket_model_path else {
+            return Err("no gap bucket model configured (start with --gap-model-bucket)".into());
+        };
+        let mut guard = self.gap_coreml.lock().map_err(|_| "gap coreml session poisoned")?;
+        if guard.is_none() {
+            *guard = Some(build_coreml_session("GapCloser bucket", path)?);
+        }
+        let session = guard.as_mut().unwrap();
+        let tile_len = TILE_SIZE * TILE_SIZE;
+        let mut udfs: Vec<Vec<f32>> = Vec::with_capacity(tiles.len());
+        let mut start = 0;
+        while start < tiles.len() {
+            let end = (start + GAP_COREML_BATCH).min(tiles.len());
+            let mut batch = vec![0f32; GAP_COREML_BATCH * tile_len];
+            for (b, tile) in tiles[start..end].iter().enumerate() {
+                if tile.data.len() != tile_len {
+                    return Err(format!(
+                        "gap tile is {}x{}, expected {TILE_SIZE}x{TILE_SIZE}",
+                        tile.w, tile.h
+                    ));
+                }
+                batch[b * tile_len..(b + 1) * tile_len].copy_from_slice(&tile.data);
+            }
+            let tensor = OrtTensor::from_array(([GAP_COREML_BATCH, 1, TILE_SIZE, TILE_SIZE], batch))
+                .map_err(|e| format!("gap batch tensor: {e}"))?;
+            let outputs = session
+                .run(ort::inputs!["tiles" => tensor])
+                .map_err(|e| format!("gap-closer CoreML forward: {e}"))?;
+            let (_, out) = outputs.iter().next().ok_or("gap-closer produced no outputs")?;
+            let (_, data) = out
+                .try_extract_tensor::<f32>()
+                .map_err(|e| format!("gap-closer output: {e}"))?;
+            for b in 0..(end - start) {
+                udfs.push(data[b * tile_len..(b + 1) * tile_len].to_vec());
+            }
+            start = end;
+        }
+        Ok(udfs)
     }
 
     /// The AnT forward: dispatch `feed` to the resolved EP and return
@@ -353,7 +479,7 @@ impl Engine {
             .map_err(|_| "ant bucket session poisoned")?;
         if guard.is_none() {
             *guard = Some(BucketState {
-                session: build_coreml_session(path)?,
+                session: build_coreml_session("AnT bucket", path)?,
                 warmed: false,
             });
         }

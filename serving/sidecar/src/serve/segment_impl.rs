@@ -12,8 +12,6 @@
 //! Response images go out through the cv2 encoder (grayscale, so no channel
 //! swap), except the compare-skipped colorized visualization.
 
-use ort::value::Tensor;
-
 use crate::segment::tiler::Tiler;
 use crate::segment::{binarize, compute_seg_fast_stages, tiled, Gray};
 
@@ -100,31 +98,19 @@ fn gap_close_path(
         [overlap, overlap],
     );
 
-    let boundaries = engine
-        .with_gap_session(|session| {
-            let mut tiles = Vec::with_capacity(tiler.n_tiles());
-            for tile_id in 0..tiler.n_tiles() {
-                let tile = tiler.get_tile_f32(&mi.padded_edge, tile_id);
-                let tensor = Tensor::from_array((
-                    [1usize, 1, tile.h, tile.w],
-                    tile.data.clone(),
-                ))
-                .map_err(|e| format!("gap tile tensor: {e}"))?;
-                let outputs = session
-                    .run(ort::inputs!["tiles" => tensor])
-                    .map_err(|e| format!("gap-closer forward: {e}"))?;
-                let (_, output) = outputs
-                    .iter()
-                    .next()
-                    .ok_or("gap-closer produced no outputs")?;
-                let (_, udf) = output
-                    .try_extract_tensor::<f32>()
-                    .map_err(|e| format!("gap-closer output: {e}"))?;
-                tiles.push(tiled::tile_boundary_from_udf(udf, &tile, strength));
-            }
-            Ok(tiles)
-        })?
+    // Gather every 512x512 tile, run the UDF net over them (batched on CoreML,
+    // one at a time on CPU), then compose each tile's boundary.
+    let tiles: Vec<_> = (0..tiler.n_tiles())
+        .map(|tile_id| tiler.get_tile_f32(&mi.padded_edge, tile_id))
+        .collect();
+    let udfs = engine
+        .run_gap_udfs(&tiles)?
         .ok_or("gap model disappeared mid-request")?;
+    let boundaries: Vec<_> = tiles
+        .iter()
+        .zip(udfs.iter())
+        .map(|(tile, udf)| tiled::tile_boundary_from_udf(udf, tile, strength))
+        .collect();
 
     let stages = tiled::gap_close_stages(alpha, &boundaries, [2, 1, 0], 10, min_seg_size);
 
