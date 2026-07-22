@@ -18,6 +18,7 @@ import {
   getDirectoryEntriesAll,
   getFileEntriesFromMenu,
   getFileFromFileSystemEntry,
+  attachFilePaths,
   sortByName,
   getRawDataFromDataUri,
   // convertBase64ToBinary,
@@ -887,6 +888,8 @@ export default {
     // now call the action that does a bunch of checks
     // and then loads the images into the the timeline
     const fileOutputArray = [].slice.call(fileOutput);
+    // File.path was removed in Electron 32 — re-attach the real fs paths.
+    attachFilePaths(fileOutputArray);
     fileOutputArray.sort((a, b) => (a.name > b.name) ? 1 : -1)
     dispatch(ADD_IMAGES_TO_TIMELINE, {
       layerId,
@@ -934,6 +937,8 @@ export default {
         fileLoadingQueue.push(file);
       }
       fileLoadingQueue.sort(sortByName);
+      // File.path was removed in Electron 32 — re-attach the real fs paths.
+      attachFilePaths(fileLoadingQueue);
       // console.log('fileLoadingQueue sorted: ', fileLoadingQueue);
       // console.log('number of images importing: ', fileLoadingQueue.length);
       // dispatch the command to add these images to timeline
@@ -1485,183 +1490,189 @@ export default {
     // cadm_segMap_a52ca022f66d3b4ed60ced15d620c6fe_minSegSize_2_dilate_01.png
     // set analyze mode wait screen
     commit(SET_COLORIZATION_IN_PROGRESS, true);
-    console.log('CHECKING IF SEGMAP EXISTS', currSegPath);
-    if (fs.existsSync(currSegPath)) {
-      console.log('line image segmap already exists');
-      // use that as the image...
-      commit(SET_SEGMENTATION_MAP_PATH_FOR_IMAGE_WITH_ID, {
-        imageDataId: targetLineFrame.imageDataId,
-        segmentationMapPath: currSegPath,
-      });
-      segMapPath = currSegPath;
-    } else {
-      // define path of target frame
-      // const tmpTargetFileName = `cadm_tmp_trgt_${Date.now()}.png`;
-      const frameNameElements = [`cadm_tmp_trgt_${Date.now()}`, '_', currHash, `.png`];
-      const tmpTargetFileName = frameNameElements.join('');
-      let tmpTargetFilePath = path.join(defineTempDir(), tmpTargetFileName);
+    try {
+      console.log('CHECKING IF SEGMAP EXISTS', currSegPath);
+      if (fs.existsSync(currSegPath)) {
+        console.log('line image segmap already exists');
+        // use that as the image...
+        commit(SET_SEGMENTATION_MAP_PATH_FOR_IMAGE_WITH_ID, {
+          imageDataId: targetLineFrame.imageDataId,
+          segmentationMapPath: currSegPath,
+        });
+        segMapPath = currSegPath;
+      } else {
+        // define path of target frame
+        // const tmpTargetFileName = `cadm_tmp_trgt_${Date.now()}.png`;
+        const frameNameElements = [`cadm_tmp_trgt_${Date.now()}`, '_', currHash, `.png`];
+        const tmpTargetFileName = frameNameElements.join('');
+        let tmpTargetFilePath = path.join(defineTempDir(), tmpTargetFileName);
 
-      // define line frame
-      const lineDataObj = getters[IMAGE_DATA_OBJECT_OF_FRAME]({
-        layerId: lineLayerId,
-        frameNr: thisFrameNr,
-      });
-      // console.log('lineDataObj: ', lineDataObj.dataUri);
-      // determine whether the line frame exists, or if we need to make a new one
-      let targetLineFrameDataUri;
-      let rawBase64Data;
-      let processingTimeInSec;
-      let cannyUri;
-      // if line image already exists
-      if (lineDataObj.dataUri) {
-        // console.log(lineDataObj.dataUri);
-        // create/define line image
-        if (!colorImageId) {
-          commit(SET_COLORIZATION_PROGRESS, {
-            numTotal: 1,
-            numFinished: 0,
+        // define line frame
+        const lineDataObj = getters[IMAGE_DATA_OBJECT_OF_FRAME]({
+          layerId: lineLayerId,
+          frameNr: thisFrameNr,
+        });
+        // console.log('lineDataObj: ', lineDataObj.dataUri);
+        // determine whether the line frame exists, or if we need to make a new one
+        let targetLineFrameDataUri;
+        let rawBase64Data;
+        let processingTimeInSec;
+        let cannyUri;
+        // if line image already exists
+        if (lineDataObj.dataUri) {
+          // console.log(lineDataObj.dataUri);
+          // create/define line image
+          if (!colorImageId) {
+            commit(SET_COLORIZATION_PROGRESS, {
+              numTotal: 1,
+              numFinished: 0,
+            });
+          }
+          targetLineFrameDataUri = getters[IMAGE_DATA_URI_BY_IMAGE_DATA_ID](targetLineFrame.imageDataId);
+          rawBase64Data = getRawDataFromDataUri(targetLineFrameDataUri);
+          await writeBase64DataToFile(tmpTargetFilePath, rawBase64Data);
+        } else { // line image does not exist and we have to make one
+          console.log('line image does not exist, creating one');
+          const cannyLineFileName = `cadm_cannyLine_${thisFrameNr - 1}_${Date.now()}.png`;
+          cannyLineFilePath = path.join(defineTempDir(), cannyLineFileName);
+          console.log(cannyLineFilePath);
+          // colorDataUri is the primary source: imported Files have no .path
+          // on Electron ≥32, so colorFrameFilePath is usually undefined here.
+          cannyUri = await generateCannyLine({
+            colorPath: colorFrameFilePath,
+            colorDataUri: colorFrameDataUri,
+            outPath: cannyLineFileName,
+          });
+
+          tmpTargetFilePath = cannyLineFilePath;
+        
+          addTempFile(tmpTargetFilePath);
+          // create segmentation map
+          // let processingTimeInSec;
+          // eslint-disable-next-line
+          // console.log(segMapPath);
+
+          // add canny Line to line frame
+          // console.log(cannyUri);
+          console.log('overwriting line image with canny line image');
+          let cannyLineImageId;
+          cannyLineImageId = lineDataObj.id;
+          dispatch(OVERWRITE_IMAGE_IN_IMAGE_STORE, {
+            imageDataId: cannyLineImageId,
+            dataUri: cannyUri,
+          });
+
+          commit(SET_IMAGE_DATA_FOR_FRAME_WITH_ID, {
+            layerId: lineLayerId,
+            imageDataId: cannyLineImageId,
+            frameNr: thisFrameNr,
+            isOriginal: false,
+          });
+
+          console.log('canny line image data obj: ', lineDataObj);
+        }
+
+        ({ path: segMapPath, processingTimeInSec, canceled } = await generateSegmentationMap({
+          projectId: getters[PROJECT_ID],
+          srcFilename: tmpTargetFileName,
+          srcPath: tmpTargetFilePath,
+          imageId: targetLineFrame.imageDataId,
+          aiDilationSize: aiDilationAmount,
+          tbDilationSize: tbDilationAmount,
+          minSegSize: minSegSize,
+          line_threshold: lineThreshold,
+          is_auto_alpha: isAutoAlpha,
+          minSegSize: minSegSize,
+          canvSize: getters[CANVAS_SIZE],
+        }));
+
+        if (canceled) {
+          commit(SET_COLORIZATION_IN_PROGRESS, false);
+          return;
+        }
+
+        // console.log(`Segmentation map generated and stored at: ${segMapPath}, took ${processingTimeInSec} seconds`);
+        if (processingTimeInSec){
+          commit(SET_TIME_FOR_LAST_SEGMENTATION_MAP_GENERATION, processingTimeInSec);
+        }
+        // find duplicates and update
+        if (lineDataObj && segMapPath) {
+          commit(SET_SEGMENTATION_MAP_PATH_FOR_IMAGE_WITH_ID, {
+            imageDataId: targetLineFrame.imageDataId,
+            segmentationMapPath: segMapPath,
           });
         }
-        targetLineFrameDataUri = getters[IMAGE_DATA_URI_BY_IMAGE_DATA_ID](targetLineFrame.imageDataId);
-        rawBase64Data = getRawDataFromDataUri(targetLineFrameDataUri);
-        await writeBase64DataToFile(tmpTargetFilePath, rawBase64Data);
-      } else { // line image does not exist and we have to make one
-        console.log('line image does not exist, creating one');
-        const cannyLineFileName = `cadm_cannyLine_${thisFrameNr - 1}_${Date.now()}.png`;
-        cannyLineFilePath = path.join(defineTempDir(), cannyLineFileName);
-        console.log(cannyLineFilePath);
-        cannyUri  = await generateCannyLine({
-          colorPath: colorFrameFilePath,
-          outPath: cannyLineFileName,
-          projectId: getters[PROJECT_ID],
-        });
-
-        tmpTargetFilePath = cannyLineFilePath;
-        
-        addTempFile(tmpTargetFilePath);
-        // create segmentation map
-        // let processingTimeInSec;
-        // eslint-disable-next-line
-        // console.log(segMapPath);
-
-        // add canny Line to line frame
-        // console.log(cannyUri);
-        console.log('overwriting line image with canny line image');
-        let cannyLineImageId;
-        cannyLineImageId = lineDataObj.id;
-        dispatch(OVERWRITE_IMAGE_IN_IMAGE_STORE, {
-          imageDataId: cannyLineImageId,
-          dataUri: cannyUri,
-        });
-
-        commit(SET_IMAGE_DATA_FOR_FRAME_WITH_ID, {
-          layerId: lineLayerId,
-          imageDataId: cannyLineImageId,
-          frameNr: thisFrameNr,
-          isOriginal: false,
-        });
-
-        console.log('canny line image data obj: ', lineDataObj);
       }
-
-      ({ path: segMapPath, processingTimeInSec, canceled } = await generateSegmentationMap({
-        projectId: getters[PROJECT_ID],
-        srcFilename: tmpTargetFileName,
-        srcPath: tmpTargetFilePath,
-        imageId: targetLineFrame.imageDataId,
-        aiDilationSize: aiDilationAmount,
-        tbDilationSize: tbDilationAmount,
-        minSegSize: minSegSize,
-        line_threshold: lineThreshold,
-        is_auto_alpha: isAutoAlpha,
-        minSegSize: minSegSize,
-        canvSize: getters[CANVAS_SIZE],
-      }));
-
       if (canceled) {
+        // dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
+        commit(SET_UNSAVED_CHANGES, true);
+        requestTempFiles();
+        console.log('THING CANCELED, FROM IMPORT FRAME NUMBER', fromImport);
+        if (fromImport) {
+          // if this ANALYZE_FRAME action was triggered from a color frame import and the analyzation was cancelled, delete the color frame that was imported.
+          // clear all selected frames
+          dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
+          // set the selected frame on the color layer
+          const colorLayerId = [INITIAL_COLOR_LAYER_ID][0];
+          commit(SET_FRAME_SELECTED, {
+            layerId: colorLayerId,
+            frameNr: fromImport,
+            isSelected: true,
+            shiftKeyIsPressed: false,
+          });
+          // commit delete selected frames
+          console.log('ABOUT TO DELETE SELECTED FRAMES');
+          await dispatch(HANDLE_FRAME_DELETE);
+          commit(SET_CANVAS_REDRAW_TRIGGER);
+        }
         commit(SET_COLORIZATION_IN_PROGRESS, false);
         return;
       }
 
-      // console.log(`Segmentation map generated and stored at: ${segMapPath}, took ${processingTimeInSec} seconds`);
-      if (processingTimeInSec){
-        commit(SET_TIME_FOR_LAST_SEGMENTATION_MAP_GENERATION, processingTimeInSec);
-      }
-      // find duplicates and update
-      if (lineDataObj && segMapPath) {
-        commit(SET_SEGMENTATION_MAP_PATH_FOR_IMAGE_WITH_ID, {
-          imageDataId: targetLineFrame.imageDataId,
-          segmentationMapPath: segMapPath,
-        });
-      }
-    }
-    if (canceled) {
-      // dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
-      commit(SET_UNSAVED_CHANGES, true);
-      requestTempFiles();
-      console.log('THING CANCELED, FROM IMPORT FRAME NUMBER', fromImport);
-      if (fromImport) {
-        // if this ANALYZE_FRAME action was triggered from a color frame import and the analyzation was cancelled, delete the color frame that was imported.
-        // clear all selected frames
-        dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
-        // set the selected frame on the color layer
-        const colorLayerId = [INITIAL_COLOR_LAYER_ID][0];
-        commit(SET_FRAME_SELECTED, {
-          layerId: colorLayerId,
-          frameNr: fromImport,
-          isSelected: true,
-          shiftKeyIsPressed: false,
-        });
-        // commit delete selected frames
-        console.log('ABOUT TO DELETE SELECTED FRAMES');
-        await dispatch(HANDLE_FRAME_DELETE);
-        commit(SET_CANVAS_REDRAW_TRIGGER);
-      }
-      commit(SET_COLORIZATION_IN_PROGRESS, false);
-      return;
-    }
+      if (colorFrameFilePath || colorFrameDataUri) {
 
-    if (colorFrameFilePath || colorFrameDataUri) {
-
-      const refSegMap64DataUri = await base64Encode(
-        segMapPath,
-        { asDataUri: true },
-      );
-
-      const refColor64DataUri = colorFrameDataUri
-        ? colorFrameDataUri
-        : await base64Encode(colorFrameFilePath, { asDataUri: true });
-      let targetLineFrameDataUri;
-      if ( cannyLineFilePath == null ){
-        console.log('cannylinefilepath null');
-        targetLineFrameDataUri = getters[IMAGE_DATA_URI_BY_IMAGE_DATA_ID](targetLineFrame.imageDataId);
-      } else {
-        console.log('cannylinefilepath exists');
-        targetLineFrameDataUri = await base64Encode(
-          cannyLineFilePath,
+        const refSegMap64DataUri = await base64Encode(
+          segMapPath,
           { asDataUri: true },
         );
-      }
 
-      // Shared with COLORIZE's analyze path: `analyzeRef` (colorize-run.js) owns
-      // the /preprocess call, the palette merge, and the REPLACE_IMAGE_DATA_URI
-      // of the preprocessed render — one implementation for both entry points.
-      await analyzeRef(
-        {
-          segMapDataUri: refSegMap64DataUri,
-          refColorDataUri: refColor64DataUri,
-          targetLineDataUri: targetLineFrameDataUri,
-          colorImageId,
-        },
-        createColorizeDeps({ getters, commit, dispatch }),
-      );
-    }
-      commit(SET_CANVAS_REDRAW_TRIGGER);
-      // exit analyze mode
+        const refColor64DataUri = colorFrameDataUri
+          ? colorFrameDataUri
+          : await base64Encode(colorFrameFilePath, { asDataUri: true });
+        let targetLineFrameDataUri;
+        if ( cannyLineFilePath == null ){
+          console.log('cannylinefilepath null');
+          targetLineFrameDataUri = getters[IMAGE_DATA_URI_BY_IMAGE_DATA_ID](targetLineFrame.imageDataId);
+        } else {
+          console.log('cannylinefilepath exists');
+          targetLineFrameDataUri = await base64Encode(
+            cannyLineFilePath,
+            { asDataUri: true },
+          );
+        }
+
+        // Shared with COLORIZE's analyze path: `analyzeRef` (colorize-run.js) owns
+        // the /preprocess call, the palette merge, and the REPLACE_IMAGE_DATA_URI
+        // of the preprocessed render — one implementation for both entry points.
+        await analyzeRef(
+          {
+            segMapDataUri: refSegMap64DataUri,
+            refColorDataUri: refColor64DataUri,
+            targetLineDataUri: targetLineFrameDataUri,
+            colorImageId,
+          },
+          createColorizeDeps({ getters, commit, dispatch }),
+        );
+      }
+        commit(SET_CANVAS_REDRAW_TRIGGER);
+        dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
+        commit(SET_UNSAVED_CHANGES, true);
+        requestTempFiles();
+    } finally {
+      // The overlay must never outlive this action: any throw above (canny,
+      // segmentation, analyzeRef) would otherwise leave it up forever.
       commit(SET_COLORIZATION_IN_PROGRESS, false);
-      dispatch(DESELECT_ALL_FRAMES_FROM_MENU);
-      commit(SET_UNSAVED_CHANGES, true);
-      requestTempFiles();
+    }
   },
 
   [HANDLE_DELETE_PRESS]({ getters, commit }) {

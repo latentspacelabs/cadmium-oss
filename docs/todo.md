@@ -61,6 +61,7 @@ Remaining from the design:
 ### P1 — correctness
 - Possible out-of-bounds layer index. → [store/getters.js:140](../app/src/store/getters.js#L140), [store/getters.js:158](../app/src/store/getters.js#L158)
 - Missing validation when color images are added before line images. → [store/actions.js:1144](../app/src/store/actions.js#L1144)
+- Color-import analyze with >255 segments: `generateSegmentationMap` skips writing the seg file but still returns its path, so `analyzeRef` gets `'noFile'` as the segmap and fails with a generic server error instead of the existing "too many segments" message. Surface `numSegments` from `ANALYZE_CURRENT_FRAME` and bail with the proper dialog. → [util/segmentation.js](../app/src/util/segmentation.js), [store/actions.js](../app/src/store/actions.js)
 - `loadcdm` backfill defaults disagree with `state.js` defaults for legacy files: `maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10 ([undo-redo-plugin.js:511](../app/src/store/undo-redo-plugin.js#L511) vs [state.js:115](../app/src/store/state.js#L115)); and `if (!newState.autoAlpha)` turns an absent field into `false` while a fresh app defaults `true`.
 - `validateFrameNumber` accepts up to 1000 while the user-facing copy says 999. → [services/import-plan.js](../app/src/services/import-plan.js)
 
@@ -171,6 +172,13 @@ Closed since this file was created — listed so they aren't re-filed:
   around it.
 - Undeclared `choseToUpdate` assignment in background.js (ReferenceError when
   declining an update) — removed.
+- **Color-import-without-line hang** (2026-07-22): Electron ≥32 removed
+  `File.path`, so the canny fallback read `undefined` from disk and the
+  failure was swallowed into a `new Promise(async ...)` executor that never
+  settled — analyze overlay up forever. Fixed three-deep: canny now takes the
+  frame's data URI directly, `generateSegmentationMap` is a plain async fn
+  (throws reject), `ANALYZE_CURRENT_FRAME` clears the overlay in a `finally`,
+  and import queues re-attach real paths via `webUtils.getPathForFile`.
 
 From the serving-backend review pass:
 

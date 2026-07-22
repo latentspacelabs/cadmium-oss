@@ -33,6 +33,34 @@ export function getFileFromFileSystemEntry(fileSystemEntry) {
   });
 }
 
+/**
+ * Electron ≥32 removed the nonstandard `File.path` property. Re-attach the
+ * real filesystem path via webUtils.getPathForFile so downstream consumers
+ * (metadata stripping, tmp-root tracking, disk-read fallbacks) keep working.
+ * No-op outside Electron (unit tests) and for synthetic File objects.
+ * @param {Array<File>} files - Files from an <input> or drag-and-drop
+ * @returns {Array<File>} The same array, with `.path` set where resolvable
+ */
+export function attachFilePaths(files) {
+  let webUtils;
+  try {
+    // eslint-disable-next-line global-require
+    ({ webUtils } = require('electron'));
+  } catch (e) {
+    return files;
+  }
+  if (!webUtils || typeof webUtils.getPathForFile !== 'function') { return files; }
+  files.forEach((file) => {
+    if (file && !file.path) {
+      try {
+        const realPath = webUtils.getPathForFile(file);
+        if (realPath) { file.path = realPath; }
+      } catch (e) { /* synthetic File — leave it pathless */ }
+    }
+  });
+  return files;
+}
+
 export function sortByName(a, b) {
   // Use toUpperCase() to ignore character casing
   const itemA = a.name.toUpperCase();

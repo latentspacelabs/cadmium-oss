@@ -8,10 +8,15 @@ import { createCanvas } from '@/util/canvas-util';
  * @returns {object} - the image dimensions in the form { width: 123, height: 456 }
  */
 export function getImageDimensions(imageSrc) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const i = new Image();
     i.onload = () => {
       resolve({ width: i.width, height: i.height });
+    };
+    // Without this, a source that fails to decode leaves the promise
+    // pending forever and hangs every caller awaiting it.
+    i.onerror = () => {
+      reject(new Error('getImageDimensions: image failed to load'));
     };
     i.src = imageSrc;
   });
