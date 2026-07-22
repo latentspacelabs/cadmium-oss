@@ -88,11 +88,6 @@ replicated exactly (gated by the recorded HTTP goldens).
 - On Windows/WDDM boxes, system RAM pressure (e.g. Windows Update) can fail
   DML allocations that normally succeed — reboot the rig before benching.
 
-## Remaining TODOs
+## Open work
 
-- Wire GapCloser onto the **DirectML** GPU EP (the CoreML batch path now exists
-  via `--gap-model-bucket`; DML fp16 ~719 ms / CoreML ~802 ms vs 2.6 s on CPU).
-- Run the 0-flip boundary check for **fp16 on DirectML** (only fp32/CPU has
-  it today) before shipping fp16 as the Windows default.
-- `compute_seg_partial` (incremental re-seg of edited tiles) exists in Python
-  but has no Rust port and no serving route — decide whether it's wanted.
+Tracked centrally in [todo.md](todo.md) (serving/sidecar section).

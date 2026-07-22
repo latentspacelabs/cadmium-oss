@@ -93,12 +93,6 @@ first-mismatch coordinates). Runtime: ~0.3 s/drawing vs ~2.3 s for Python.
 - scipy `connected_components` label order (first-encountered node index) is
   part of the contract for the tiled path.
 
-## Remaining TODOs
+## Open work
 
-- The Python and Rust implementations are both live; once the sidecar is the
-  only shipped inference path (R4), the Python one remains for training/data
-  prep only — mark it as such.
-- Golden sets currently live outside the repo (machine-local scratch);
-  R5/CI needs a durable home for them (release artifact or S3).
-- fp16 GapCloser boundary parity on DirectML has not had the 0-flip check the
-  fp32/CPU path has (see `docs/gap-closer-serving.md`).
+Tracked centrally in [todo.md](todo.md) (segmentation section).

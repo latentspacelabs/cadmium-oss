@@ -1,7 +1,8 @@
 # docs/
 
-Permanent component documentation — motivation, design, quirks, and open
-TODOs for each part of the system:
+Permanent component documentation — motivation, design, and quirks for each
+part of the system. Open work lives ONLY in `todo.md`; the component docs
+don't carry their own TODO sections:
 
 | Doc | Covers |
 |---|---|

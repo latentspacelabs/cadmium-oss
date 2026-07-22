@@ -168,20 +168,6 @@ an MKL-VML ln bits table) — see `src/postprocess/`.
   one-time (42 partitions); ORT 1.27 does it in 1.7 s. Bump ort when a newer
   rc ships; consider `ModelCacheDirectory` to persist compiles.
 
-## Remaining TODOs
+## Open work
 
-- R4 packaging: app spawns/supervises the sidecar (done). Model
-  distribution: artifacts live on the `models-v1` GitHub Release
-  (uploaded by `serving/tools/upload_models_release.sh`, pinned by
-  size+sha256 in `app/src/util/model-manifest.js`); the app downloads
-  them on demand with verification (see `build-and-release.md` §6).
-  End-to-end fetch test awaits the release existing.
-- R5 CI: `.github/workflows/ci.yml` runs `cargo test` (mac+win), the app
-  jest suite, and packaged mac/win builds with the bundled sidecar.
-  Still missing: the verify bins + a Windows CPU parity_replay in Actions
-  (blocked on a durable home for the multi-GB goldens) and EP runtime
-  checks (CoreML/DirectML need real hardware).
-- GapCloser onto GPU EPs in the engine (see `docs/gap-closer-serving.md`).
-- fp16 AnT evaluation (smaller download; needs the ScatterElements
-  block-list export path re-validated end-to-end).
-- Modal backend client wiring (per-op URLs + auth) remains unbuilt.
+Tracked centrally in [todo.md](todo.md) (serving/sidecar + release sections).

@@ -383,65 +383,7 @@ two-reference colorization (length 1 today).
   backs up the currently open project to `.artifacts/` before wiping the
   timeline.
 
-## 4. Remaining TODOs
+## 4. Open work
 
-Deliberate, tracked debt (in rough priority order):
-
-- **The storage flip** — the biggest one. The v2 `.cdm` document section is
-  derived-and-validated only; `state.layers` + ghosts + `saveState` remain
-  the source of truth. Flipping (Document becomes primary, `saveState`
-  dropped, ghost color records replaced by real Cels) is deferred on purpose
-  (~100+ read-site churn, no live bug pays for it). The seam and the
-  validation warning in `LOAD_FILE` (`actions.js:703-718`) are the entry
-  point when it happens.
-- ~~Wire the `embedded` backend~~ **DONE 2026-07-21**: `sidecar-manager.js`
-  (main process) spawns/supervises the sidecar on first use — free port,
-  /health-gated readiness, capped restart backoff, `--exit-on-stdin-close`
-  plus a ppid watchdog in the sidecar so it dies with the app even on
-  SIGKILL (an Electron-on-macOS quirk: a dead socketpair peer does not wake
-  a blocked read, and writing to it can hang — the sidecar's death paths
-  must never log to stderr). Status flows over `sidecar:*` IPC into the
-  Settings modal. When the embedded backend is unreachable, `modal.js`
-  shows the supervisor's actual failure (missing binary/models, crash
-  loop) instead of the generic "No Internet Connection" dialog. Missing
-  models are self-serve: the Settings modal offers a verified download
-  from the `models-v1` release (`model-downloader.js`, progress over
-  `sidecar:models-progress`; see `build-and-release.md` §6). Dev still
-  overrides via `CADMIUM_MODELS_DIR`/`CADMIUM_SIDECAR_BIN`.
-- **Build/CI/packaging/signing/releases**: see `build-and-release.md` —
-  local packaged builds, the GitHub Actions pipeline, env-driven
-  signing/notarization, tag-drafted releases, and model-artifact
-  distribution all live there.
-- **Legacy job flags**: the `*InProgress` / `*CanceledByUser` / progress keys
-  still exist as JobRunner-maintained mirrors, and cancellation still bridges
-  through `SET_*_CANCELED_BY_USER` commits (`CANCEL_COLORIZATION`,
-  `actions.js:496`). Deleting the mirrors means porting every reader
-  (waiting screens, cancel buttons, menu state) to observe the runner.
-- **Dead code to remove**: `app/src/server.js` + most of
-  `app/src/binaries.js` (the old spawn-a-bundled-`cadmium-server` path —
-  nothing imports `startServer`/`stopServer`; the `bin/` tree it expects is
-  not in the repo); `SET_TMP_IMAGE_ROOT_PATH`
-  (`app/src/store/mutation-types.js:15`, self-marked "TODO: Delete");
-  the stock Cypress scaffold under `tests/e2e/` (`plugins/`, `support/`,
-  `specs/test.js`).
-- **Small real bugs found while reading**:
-  - ~~`background.js` assigned an undeclared `choseToUpdate`~~ — removed
-    2026-07-22 (write-only; a ReferenceError in the strict-mode bundle).
-  - `loadcdm` backfill defaults disagree with `state.js` defaults for legacy
-    files: `maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1,
-    `minSegSize` 1 vs 10 (`undo-redo-plugin.js:511-519` vs
-    `state.js:115-118`); and `if (!newState.autoAlpha) autoAlpha = false`
-    turns an absent field into `false` while a fresh app defaults to `true`.
-  - `validateFrameNumber` accepts up to 1000 while the user-facing copy says
-    999 (`app/src/services/import-plan.js`, documented quirk).
-- **Naming/renames the code itself asks for**: `selectedFrame` → playhead
-  (`state.js:35`), `SELECTED_FRAME_NR` getter likewise
-  (`getter-types.js:5`); move `playerInterval` out of reactive state
-  (`state.js:69`); rename `util/modal.js` to something like
-  `server-client.js` to end the Modal-vs-modal confusion.
-- **Long-tail inline TODOs** (grep `TODO` under `app/src`): bounds-safety in
-  `getters.js:140,158`, hard-coded layer assumptions and duplicated
-  mouse-move code in `MainPane.vue:990,1349`, timeline sizing
-  (`TimelinePane.vue:27,618`), segmap checksum reuse
-  (`util/segmentation.js:32`), dynamic pen-layer default
-  (`util/KeyHandler.js:219`).
+Tracked centrally in [todo.md](todo.md) (app section) — this doc no longer
+carries its own TODO list.

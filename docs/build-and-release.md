@@ -240,20 +240,6 @@ system proxies). No resume yet: a failed/cancelled file refetches whole.
 GH Releases downside to remember: 2 GiB/file ceiling with little headroom
 over the 1.39 GB AnT fp32, and no signed URLs / download analytics.
 
-## 7. Remaining TODOs
+## 7. Open work
 
-- **First-run shakedown**: the workflow has never executed (repo not on
-  GitHub yet). Most likely friction: Windows `cargo test` runtime — the
-  sidecar's Windows validation so far was Python-side (DirectML parity on
-  the EC2 rig), never `cargo test` under MSVC.
-- **Model bootstrap end-to-end test**: the downloader is built and
-  unit-tested, but a real fetch against the `models-v1` release needs the
-  release to exist (and the repo public for anonymous URLs). Resume
-  support for interrupted GB-scale downloads is a known gap.
-- **Verify goldens in CI**: the `verify_*` bins + a Windows CPU
-  `parity_replay` need a durable home for the multi-GB golden dirs
-  (candidates: a dedicated release tag like the models, or S3).
-- **EP runtime checks**: CoreML/DirectML paths need real hardware; GitHub
-  runners exercise only CPU EPs.
-- **Signed-build validation**: mac notarization staple check and the
-  eSigner CKA flow both need one real secrets-configured run.
+Tracked centrally in [todo.md](todo.md) (release / cross-cutting section).

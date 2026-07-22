@@ -1,9 +1,10 @@
 # Cadmium — centralized TODO
 
-The single index of outstanding work across the repo. It pulls together the
-inline `TODO`/`FIXME` markers scattered through the source and the "Remaining
-TODOs" roadmap sections in the docs, plus the open findings from the latest
-serving-backend code review that were deferred rather than fixed.
+The **single home** for outstanding work across the repo: inline `TODO`/
+`FIXME` markers in the source, the roadmap items that used to live in
+per-component "Remaining TODOs" doc sections (folded in here 2026-07-22; the
+component docs no longer carry TODO sections), and open findings from the
+2026-07 serving-backend code review that were deferred rather than fixed.
 
 **Split by module, ordered by priority within each:**
 
@@ -12,10 +13,9 @@ serving-backend code review that were deferred rather than fixed.
 - **P3 — cleanup / refactor / rename.** Maintainability; no behavior change.
 - **P4 — future / aspirational.** New capability, not a defect.
 
-Each item links to the authoritative location (`file:line`). For the doc
-roadmap sections, the detail lives in the linked doc — this file is the index,
-not a copy. When you close an item, delete its line here **and** the marker it
-points at.
+Where an item has an inline marker, it links to the authoritative location
+(`file:line`). When you close an item, delete its line here **and** the marker
+it points at.
 
 ---
 
@@ -24,16 +24,22 @@ points at.
 - **P1 — Rotate two leaked credentials.** A Comet API key and an Apple
   app-specific password were committed in history and must be rotated at the
   provider, then scrubbed. Tracked out-of-band; see the maintainer's notes.
-- **P1 — Add a `LICENSE` file.** `Cargo.toml` declares `license = "MIT"` and the
-  READMEs say MIT, but there is no top-level `LICENSE`.
-- **P2 — First-run CI shakedown never executed.** Repo not yet public; Windows
-  `cargo test` under MSVC and the mac notarization staple have never run for
-  real. → [docs/build-and-release.md:226](build-and-release.md#L226)
-- **P2 — Model-bootstrap end-to-end test** needs the `models-v1` release to
-  exist and the repo public; EP runtime checks (CoreML/DirectML) need real
-  hardware (CI runners are CPU-only). → [docs/build-and-release.md:226](build-and-release.md#L226)
-- **P2 — Windows DirectML e2e shakedown on real GPU hardware** still pending
-  (the tiled-scatter AnT path + fp16 boundary parity).
+- **P2 — Windows e2e shakedown on real hardware.** Install and run the CI-built
+  `Cadmium.Setup.exe` on a real DirectX-12 machine: DirectML tiled-scatter AnT
+  path, fp16 GapCloser 0-flip boundary check (only fp32/CPU has it today —
+  prerequisite for shipping fp16 as the Windows default), and one real
+  eSigner-CKA signed-build validation. (Mac side is validated: signed+notarized
+  v1.5.4 installed and serving via CoreML.)
+- **P2 — Model-bootstrap end-to-end test on a fresh machine.** The downloader
+  is unit-tested and the `models-v1` release exists, but a clean-machine
+  install→download→colorize pass hasn't been run; anonymous download URLs also
+  need the repo public. **Resume support for interrupted GB-scale downloads is
+  a known gap** (a failed file refetches whole).
+- **P2 — Verify goldens in CI.** The `verify_*` bins + a Windows CPU
+  `parity_replay` need a durable home for the multi-GB golden dirs (a
+  dedicated release tag like the models, or S3); until then CI runs only
+  `cargo test` + jest. EP runtime checks (CoreML/DirectML) additionally need
+  real hardware — GitHub runners are CPU-only.
 
 ### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
 
@@ -55,7 +61,8 @@ Remaining from the design:
 ### P1 — correctness
 - Possible out-of-bounds layer index. → [store/getters.js:140](../app/src/store/getters.js#L140), [store/getters.js:158](../app/src/store/getters.js#L158)
 - Missing validation when color images are added before line images. → [store/actions.js:1144](../app/src/store/actions.js#L1144)
-- Small bugs catalogued in the app doc: loadcdm backfill defaults disagree with `state.js` (`maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10, `autoAlpha` missing); `validateFrameNumber` accepts 1000 vs copy's 999. (`choseToUpdate` fixed 2026-07-22.) → [docs/app.md:339](app.md#L339)
+- `loadcdm` backfill defaults disagree with `state.js` defaults for legacy files: `maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10 ([undo-redo-plugin.js:511](../app/src/store/undo-redo-plugin.js#L511) vs [state.js:115](../app/src/store/state.js#L115)); and `if (!newState.autoAlpha)` turns an absent field into `false` while a fresh app defaults `true`.
+- `validateFrameNumber` accepts up to 1000 while the user-facing copy says 999. → [services/import-plan.js](../app/src/services/import-plan.js)
 
 ### P2 — performance
 - Segmentation map recomputed unconditionally; add a checksum cache. → [util/segmentation.js:32](../app/src/util/segmentation.js#L32)
@@ -63,9 +70,10 @@ Remaining from the design:
 - `playerInterval` lives in reactive Vuex state; move it out. → [store/state.js:69](../app/src/store/state.js#L69)
 
 ### P3 — cleanup / rename
-- The big storage flip: v2 `.cdm` Document is derived-only; `state.layers` + ghosts + `saveState` are still the source of truth (~100+ read-site churn, deferred). → [docs/app.md:339](app.md#L339), [docs/temp/architecture.md:283](temp/architecture.md#L283)
-- Dead code to remove: `app/src/server.js`, most of `binaries.js`, `SET_TMP_IMAGE_ROOT_PATH`, the Cypress scaffold. → [store/mutation-types.js:15](../app/src/store/mutation-types.js#L15), [store/mutations.js:448](../app/src/store/mutations.js#L448)
-- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead (it is the playhead, not a selection). → [store/state.js:35](../app/src/store/state.js#L35), [store/getter-types.js:5](../app/src/store/getter-types.js#L5)
+- The big storage flip (deliberately deferred): the v2 `.cdm` document section is derived-and-validated only; `state.layers` + ghosts + `saveState` remain the source of truth. Flipping (Document primary, `saveState` dropped, ghost color records → real Cels) is ~100+ read-site churn with no live bug paying for it. Entry point when it happens: the seam + validation warning in `LOAD_FILE` ([actions.js:703](../app/src/store/actions.js#L703)). → [docs/temp/architecture.md:283](temp/architecture.md#L283)
+- Legacy job flags: the `*InProgress` / `*CanceledByUser` / progress keys still exist as JobRunner-maintained mirrors, and cancellation still bridges through `SET_*_CANCELED_BY_USER` commits ([actions.js:496](../app/src/store/actions.js#L496)). Deleting the mirrors means porting every reader (waiting screens, cancel buttons, menu state) to observe the runner.
+- Dead code to remove: `app/src/server.js` + most of `binaries.js` (the old spawn-a-bundled-server path; nothing imports `startServer`/`stopServer`), `SET_TMP_IMAGE_ROOT_PATH`, the stock Cypress scaffold under `tests/e2e/`. → [store/mutation-types.js:15](../app/src/store/mutation-types.js#L15), [store/mutations.js:448](../app/src/store/mutations.js#L448)
+- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead (it is the playhead, not a selection); rename `util/modal.js` → `server-client.js` to end the Modal-vs-modal confusion. → [store/state.js:35](../app/src/store/state.js#L35), [store/getter-types.js:5](../app/src/store/getter-types.js#L5)
 - Layer choice hard-coded where it should follow the last-active layer. → [components/MainPane.vue:1349](../app/src/components/MainPane.vue#L1349), [util/KeyHandler.js:219](../app/src/util/KeyHandler.js#L219)
 - Duplicated mouse-move block. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
 - Sidebar height hack (flexbox). → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
@@ -101,7 +109,8 @@ Remaining from the design:
 
 ### P3 — cleanup
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
-- Mark the Python impl training/data-prep-only once the sidecar is the sole inference path; golden sets need a durable home; fp16 GapCloser DirectML boundary parity lacks the 0-flip check. → [docs/segmentation.md:96](segmentation.md#L96)
+- Both the Python and Rust segmentation implementations are live; once the sidecar is the only shipped inference path, mark the Python one as data-prep/reference-only.
+- Golden sets live outside the repo (machine-local scratch) — same durable-home need as the CI goldens item above.
 
 ---
 
@@ -115,9 +124,10 @@ code-review findings (deferred) plus the doc roadmap.
   (~2 MB/tile → ~650 MB transient for a ~256-tile 4K drawing) instead of
   streaming per-tile as the old path did. The fix is entangled with the CoreML
   batch-of-24 forward, so it's a refactor, not a one-liner. → [src/serve/segment_impl.rs:106](../serving/sidecar/src/serve/segment_impl.rs#L106)
-- **Gap-closer onto GPU EPs** was CPU-only in the docs; a CoreML batch path now
-  exists (`--gap-model-bucket`). Remaining: DirectML/fp16 gap path + the 0-flip
-  boundary check before shipping fp16 as the Windows default. → [docs/gap-closer-serving.md:78](gap-closer-serving.md#L78)
+- **Gap-closer onto the DirectML GPU EP.** The CoreML batch path exists
+  (`--gap-model-bucket`); Windows still runs the gap net on CPU (~2.6 s vs
+  ~719 ms measured on DML fp16). Ship together with the fp16 0-flip boundary
+  check (see the Windows shakedown item under Release).
 
 ### P3 — cleanup / robustness
 - **Gap bucket artifact carries no `CACHE_KEY` metadata**, so a weight-only
@@ -140,15 +150,29 @@ code-review findings (deferred) plus the doc roadmap.
 
 ### P4 — future
 - `compute_seg_partial` (incremental re-seg of edited tiles) exists in Python
-  but has no Rust port / serving route — decide if wanted. → [docs/gap-closer-serving.md:78](gap-closer-serving.md#L78)
-- Modal backend client wiring (per-op URLs + auth) remains unbuilt; fp16 AnT
-  evaluation needs the ScatterElements block-list export path re-validated. → [docs/colorizer-serving.md:140](colorizer-serving.md#L140)
+  but has no Rust port / serving route — decide if wanted.
+- fp16 AnT evaluation (halves the download; needs the ScatterElements
+  block-list export path re-validated end-to-end).
+- Modal backend client wiring (per-op URLs + auth) remains unbuilt.
 
 ---
 
-## Recently resolved (2026-07 serving-backend review pass)
+## Recently resolved (2026-07)
 
-Fixed in the review pass that produced this file — listed so they aren't re-filed:
+Closed since this file was created — listed so they aren't re-filed:
+
+- **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
+  pyproject/package.json declarations synced) — 2026-07-22.
+- **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,
+  packaged signed/notarized builds, tag-drafted releases) ran green for
+  v1.5.3–v1.5.5; mac end-to-end validated by a real install.
+- **Auto-update feed**: `publish` config was absent (packaged builds had no
+  feed at all); wired 2026-07-22 with the setup-ledger install-identity flow
+  around it.
+- Undeclared `choseToUpdate` assignment in background.js (ReferenceError when
+  declining an update) — removed.
+
+From the serving-backend review pass:
 
 - Prewarm gate race (inline ~107 s block + double CoreML compile): the AnT
   bucket gate is now claimed synchronously before the server accepts requests.

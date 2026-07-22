@@ -15,7 +15,7 @@
  *    fully verified files, and the supervisor's failed-missing state
  *    self-clears on the next ensure.
  *  - No resume yet: a failed/cancelled file's .part is deleted and refetched
- *    whole on retry (recorded TODO in docs/build-and-release.md).
+ *    whole on retry (tracked in docs/todo.md).
  *
  * Every effect is injectable for tests; the default request implementation
  * uses Electron's net module (follows the GitHub release 302 → CDN redirect,
