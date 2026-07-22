@@ -23,6 +23,51 @@ Stack: Electron 39, Vue 2.7 + Vuex 3 (options API, no Pinia/Vue 3), built by
 
 ### 2.1 Process model
 
+The runtime has three processes — the Vue renderer, the Electron main process,
+and the spawned Rust sidecar — plus two external dependencies (the model
+release and, for the hosted backend, a remote server):
+
+```mermaid
+flowchart TB
+    subgraph renderer["Renderer — Vue 2.7 + Vuex (nodeIntegration)"]
+        home["Home.vue<br/>MainPane · ServerSettingsModal"]
+        http["util/modal.js<br/>modalColorize / Segment / Preprocess"]
+        conn["connectivity-checker.js<br/>(first-use seam)"]
+        platform["platform/index.js<br/>— the only IPC path"]
+    end
+    subgraph main["Main process — background.js"]
+        mgr["SidecarManager<br/>stopped→starting→ready→failed"]
+        dl["ModelDownloader"]
+        prefs[("user-preferences.json<br/>serverBackend descriptor")]
+    end
+    subgraph sc["Rust sidecar — serving/sidecar (axum)"]
+        routes["/health · /preprocess<br/>/segment · /colorize (/predict)"]
+        engine["Engine — engine.rs<br/>GapCloser + AnT v2 ONNX"]
+    end
+    gh[("GitHub release<br/>models-v1")]
+    models[["userData/models"]]
+    remote[["Hosted server (URL)"]]
+
+    home --> http --> conn
+    conn -- embedded --> platform
+    platform -- "sidecar:ensure / :status" --> mgr
+    mgr -- "spawn (child_process)" --> sc
+    http -- "HTTP → 127.0.0.1:port (embedded)" --> routes
+    http -- "HTTP → remote URL (hosted)" --> remote
+    routes --> engine
+    engine -- reads --> models
+    platform -- "sidecar:download-models" --> dl
+    dl -- "net GET 302→CDN · size+sha256 verify" --> gh
+    dl --> models
+    platform -- "get / add-pref" --> prefs
+```
+
+The renderer never talks to the sidecar or the network directly: HTTP goes
+through `util/modal.js`, and every main-process capability goes through the
+`platform/index.js` seam. On first colorize the `connectivity-checker` either
+`ensureSidecar()`s the embedded backend (learning its loopback port over IPC)
+or reachability-checks the hosted URL.
+
 **Main process** — `app/src/background.js`. Creates the single
 `BrowserWindow`, holds the single-instance lock, owns:
 
@@ -216,9 +261,11 @@ binaries can be re-pointed without rebuilding), first match wins:
 `serverBackend` pref → legacy `serverUrl` string pref → build-time
 `VUE_APP_SERVER_URL` → `http://localhost:8000`. Per-endpoint build-time
 overrides (`VUE_APP_COLORIZE_URL` etc.) exist for split Modal deployments.
-`'embedded'` (the app-managed local sidecar) is declared in the types and
-shown greyed-out in the UI but not yet selectable — the sidecar itself is
-covered in `docs/colorizer-serving.md`.
+`'embedded'` (the app-managed local sidecar) is fully wired: selectable in the
+Server Settings UI, gated by a per-machine hardware/disk capability check
+(`app/src/util/embedded-capability.js`), and backed by the `SidecarManager`
+supervisor and `ModelDownloader`. The sidecar itself is covered in
+`docs/colorizer-serving.md`.
 
 Wiring: `background.js` folds the legacy `serverUrl` pref into the descriptor
 once at startup; `Home.vue` asks for the pref on mount, commits it into Vuex

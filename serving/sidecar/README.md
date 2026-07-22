@@ -133,6 +133,41 @@ EP selection applies to the AnT `/colorize` forward and (on macOS, when
 - `auto` (default) — `coreml` on macOS when `--ant-model-bucket` is supplied,
   else `cpu`; `dml` stays opt-in.
 
+`Engine` (`src/serve/engine.rs`) resolves the flag once into per-process AnT and
+GapCloser plans, then dispatches each request. The CoreML bucket compile is
+~107 s cold, so a `prewarm()` thread builds it off the request path behind an
+atomic gate; anything that can't use CoreML falls back to the CPU EP rather than
+failing the request:
+
+```mermaid
+flowchart TB
+    subgraph ant["AnT /colorize — run_ant"]
+        antep{ant_ep}
+        gate{"ant_bucket_gate"}
+        padck{"feed fits<br/>CORPUS_BUCKET?"}
+        bucket["run_ant_bucket<br/>CoreML · cached compile"]
+        antdyn["run_ant_dynamic<br/>CPU (or DirectML on Windows)"]
+    end
+    prewarm["prewarm() thread —<br/>claims gate IDLE→BUILDING at startup,<br/>builds session, stores READY/FAILED"]
+    antep -- "Cpu / Dml" --> antdyn
+    antep -- CoreMlBucket --> gate
+    gate -- "BUILDING / FAILED" --> antdyn
+    gate -- "READY / IDLE" --> padck
+    padck -- no --> antdyn
+    padck -- yes --> bucket
+    bucket -- "build/forward error" --> antdyn
+    prewarm -.-> gate
+
+    subgraph gapg["GapCloser /segment — run_gap_udfs"]
+        gapep{"gap_ep &amp;&amp;<br/>!gap_coreml_failed"}
+        gapcore["run_gap_coreml<br/>batches of 24 tiles"]
+        gapcpu["run_gap_cpu<br/>1 tile/forward · byte-exact golden"]
+    end
+    gapep -- yes --> gapcore
+    gapcore -- "build error → latch failed" --> gapcpu
+    gapep -- "no (CPU or latched)" --> gapcpu
+```
+
 The EP registration hooks are per-target cargo features on `ort`
 (`coreml` on macOS, `directml` on Windows — see `Cargo.toml`); the pyke
 prebuilt ONNX Runtime binaries already contain both providers. CUDA

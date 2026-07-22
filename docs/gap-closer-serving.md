@@ -1,9 +1,8 @@
 # GapCloser — serving
 
 How the ML gap-closing model runs at inference time, in both the Python
-server and the Rust sidecar. Training is covered in
-outside this repo (training code is not included); the classical segmentation it feeds is in
-`docs/segmentation.md`.
+server and the Rust sidecar. Training code is not included in this repo; the
+classical segmentation it feeds is in `docs/segmentation.md`.
 
 ## Motivation
 
@@ -32,6 +31,17 @@ gaps before segmentation. It is behind the app's "AI Gap Closing" toggle
 5. Tiled trapped-ball + connected-components merge (`compute_seg_full`,
    see `docs/segmentation.md`), relabel, uncrop.
 
+```mermaid
+flowchart LR
+    alpha["Alpha plane<br/>→ f32/255"] --> crop["Crop to content<br/>padding 10"]
+    crop --> tile["512×512 tiles<br/>0.5 overlap · edge-pad"]
+    tile --> fwd["Batched UDF forward<br/>batch 24"]
+    fwd --> bound["Per-tile boundary<br/>max(UDF &lt; thr, 1 − binarize)"]
+    bound --> merge["Overlap merge<br/>255 − merge×255"]
+    merge --> seg["Tiled trapped-ball<br/>+ CC merge · relabel"]
+    seg --> uncrop["Uncrop → seg map"]
+```
+
 ## Model artifacts & execution providers
 
 The checkpoint (`gap_close_v1_1229.ckpt`) exports to ONNX
@@ -56,9 +66,12 @@ is byte-exact (same bin).
 
 `serving/sidecar/src/segment/tiled.rs::gap_close_stages` implements the
 whole predict body; `serve/segment_impl.rs` wires it behind `/segment`. The
-UDF model runs via ort (CPU EP today; see engine follow-ups). The empty-alpha
-branch, u8 label cast, and `num_segments` counting quirks of the Python
-handler are replicated exactly (gated by the recorded HTTP goldens).
+UDF model runs via ort: the CPU EP forwards one 512×512 tile per call (the
+byte-exact golden path), and on macOS `--gap-model-bucket` enables a CoreML EP
+path that forwards tiles in fixed batches of 24 (`Engine::run_gap_udfs`),
+falling back to the CPU EP on any build/init error. The empty-alpha branch, u8
+label cast, and `num_segments` counting quirks of the Python handler are
+replicated exactly (gated by the recorded HTTP goldens).
 
 ## Quirks & gotchas
 
@@ -77,8 +90,8 @@ handler are replicated exactly (gated by the recorded HTTP goldens).
 
 ## Remaining TODOs
 
-- Wire GapCloser onto the GPU EPs in the sidecar engine (currently CPU-only;
-  acceptable at 2.6 s but 719 ms is available on DML fp16 / 802 ms CoreML).
+- Wire GapCloser onto the **DirectML** GPU EP (the CoreML batch path now exists
+  via `--gap-model-bucket`; DML fp16 ~719 ms / CoreML ~802 ms vs 2.6 s on CPU).
 - Run the 0-flip boundary check for **fp16 on DirectML** (only fp32/CPU has
   it today) before shipping fp16 as the Windows default.
 - `compute_seg_partial` (incremental re-seg of edited tiles) exists in Python

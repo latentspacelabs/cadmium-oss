@@ -38,6 +38,37 @@ already uses. The hosted path stays the reference implementation.
 7. **Postprocess**: id clamp, palette colors, normalized-entropy confidence,
    full-resolution renders.
 
+End to end, from a raw line drawing (the segmentation sub-flow that produces
+the seg map is detailed in `docs/segmentation.md` / `docs/gap-closer-serving.md`):
+
+```mermaid
+flowchart TB
+    input["Line drawing"]
+
+    subgraph seg["Segmentation → seg map · segmentation/"]
+        bin["binarize<br/>trapped_ball/line.py"]
+        gap{"AI gap closing?<br/>strength &gt; 0"}
+        gapfwd["GapCloser UDF forward<br/>512×512 tiles → boundary"]
+        tb["trapped-ball + CC merge"]
+    end
+
+    subgraph col["Colorize /colorize · colorize/ + sidecar"]
+        prep["Image prep<br/>crop · nearest-resize 1024 · pad"]
+        vec["Vectorize (vtracer)<br/>seg → SVG paths"]
+        tok["Tokenize<br/>SVG → control points · pack_sequences"]
+        feed["Feed build<br/>SDF · lowres seg · index tensors"]
+        fwd["AnT v2 forward (ONNX)<br/>packed_logits (1, R+T, 512)"]
+        post["Postprocess<br/>argmax · palette · full-res render"]
+    end
+
+    output["Colored frame<br/>target_color_image_uri"]
+
+    input --> bin --> gap
+    gap -- yes --> gapfwd --> tb
+    gap -- no --> tb
+    tb --> prep --> vec --> tok --> feed --> fwd --> post --> output
+```
+
 ## ONNX export & the graph
 
 `serving/onnx/export_ant_v2.py` wraps the torch model for export:
