@@ -1,5 +1,6 @@
 import {
   manifestHash, stampUpdatingTo, decideLaunch, LEDGER_FILE,
+  filesNeedingVerification, recordVerification,
 } from '@/util/setup-ledger-core';
 import { MODEL_FILES } from '@/util/model-manifest';
 
@@ -107,4 +108,60 @@ describe('stampUpdatingTo', () => {
 
 it('LEDGER_FILE is the userData basename', () => {
   expect(LEDGER_FILE).toBe('setup-ledger.json');
+});
+
+// ---------------------------------------------------------------------------
+// sha-verify-on-reuse memoization (Phase 5)
+// ---------------------------------------------------------------------------
+
+describe('filesNeedingVerification', () => {
+  const PROFILE = [
+    { file: 'a.onnx', bytes: 100, sha256: 'sha-a' },
+    { file: 'b.onnx', bytes: 50, sha256: 'sha-b' },
+  ];
+  const disk = (file, over = {}) => ({
+    file, size: 100, mtimeMs: 111, isSymlink: false, ...over,
+  });
+
+  it('hashes profile files with no memo, carrying the expected sha', () => {
+    const todo = filesNeedingVerification({
+      diskFiles: [disk('a.onnx')], profileModels: PROFILE, verified: {},
+    });
+    expect(todo).toEqual([disk('a.onnx', { sha256: 'sha-a' })]);
+  });
+
+  it('skips files whose memo matches (size + mtime), re-hashes when either moved', () => {
+    const verified = { 'a.onnx': { size: 100, mtimeMs: 111 } };
+    expect(filesNeedingVerification({
+      diskFiles: [disk('a.onnx')], profileModels: PROFILE, verified,
+    })).toEqual([]);
+    expect(filesNeedingVerification({
+      diskFiles: [disk('a.onnx', { mtimeMs: 222 })], profileModels: PROFILE, verified,
+    })).toHaveLength(1);
+  });
+
+  it('ignores unknown names, symlinks, and wrong-size files', () => {
+    const todo = filesNeedingVerification({
+      diskFiles: [
+        disk('junk.bin'),                       // not in the profile
+        disk('a.onnx', { isSymlink: true }),    // dev override — trusted
+        disk('b.onnx', { size: 49 }),           // wrong size — downloader's job
+      ],
+      profileModels: PROFILE,
+      verified: {},
+    });
+    expect(todo).toEqual([]);
+  });
+});
+
+describe('recordVerification', () => {
+  it('memoizes (size, mtime) per file without clobbering others', () => {
+    const memo = recordVerification({ 'a.onnx': { size: 1, mtimeMs: 2 } }, 'b.onnx', { size: 50, mtimeMs: 333 });
+    expect(memo).toEqual({
+      'a.onnx': { size: 1, mtimeMs: 2 },
+      'b.onnx': { size: 50, mtimeMs: 333 },
+    });
+    expect(recordVerification(null, 'a.onnx', { size: 1, mtimeMs: 2 }))
+      .toEqual({ 'a.onnx': { size: 1, mtimeMs: 2 } });
+  });
 });

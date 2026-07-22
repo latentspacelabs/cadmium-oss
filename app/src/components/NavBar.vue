@@ -11,6 +11,7 @@
     <div class="file-name-wrapper">
       <span class="file-name" v-bind:class="{ isUnsaved: unsavedChanges }">{{ fileName }} {{ timelineHasFrames ? `  /  ${canvasSize.width}×${canvasSize.height}` : "" }}</span>
     </div>
+    <accel-chip class="nav-bar__accel-chip" @open="$emit('open-server-settings')"></accel-chip>
     <nav-bar-icons></nav-bar-icons>
   </nav>
 </template> <!-- eslint-disable linebreak-style -->
@@ -22,6 +23,7 @@ import { t } from '@/util/i18n';
 import { mapGetters } from 'vuex';
 import { getAppVersion } from '@/platform';
 import NavBarIcons from '@/components/NavBarIcons.vue';
+import AccelChip from '@/components/AccelChip.vue';
 
 import {
   CURRENT_FILE,
@@ -57,6 +59,7 @@ export default {
   },
   components: {
     NavBarIcons,
+    AccelChip,
   },
 };
 </script>
@@ -72,6 +75,12 @@ export default {
   padding-left: 11px;
   background-color: #393939;
 }
+.nav-bar__accel-chip {
+  align-self: center;
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
 .nav-bar__logo-wrapper {
   display: flex;
   align-items: center;

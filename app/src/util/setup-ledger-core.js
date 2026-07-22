@@ -37,6 +37,32 @@ export function stampUpdatingTo(ledger, version) {
 }
 
 /**
+ * sha-verify-on-reuse, memoized (Phase 5): which on-disk profile models still
+ * need a full sha256 pass. A file is skipped when a previous verification is
+ * memoized in the ledger for the same (size, mtime); wrong-size files are the
+ * download plan's job; symlinks are dev overrides and trusted as-is.
+ * `diskFiles`: [{ file, size, mtimeMs, isSymlink }].
+ */
+export function filesNeedingVerification({ diskFiles, profileModels, verified }) {
+  const memo = verified || {};
+  const byName = new Map(profileModels.map((m) => [m.file, m]));
+  return (diskFiles || [])
+    .filter((f) => byName.has(f.file))
+    .filter((f) => !f.isSymlink)
+    .filter((f) => f.size === byName.get(f.file).bytes)
+    .filter((f) => {
+      const v = memo[f.file];
+      return !(v && v.size === f.size && v.mtimeMs === f.mtimeMs);
+    })
+    .map((f) => ({ ...f, sha256: byName.get(f.file).sha256 }));
+}
+
+/** Memoize a passed verification for (file, size, mtime). */
+export function recordVerification(verified, file, { size, mtimeMs }) {
+  return { ...(verified || {}), [file]: { size, mtimeMs } };
+}
+
+/**
  * Decide what this launch is. Inputs are plain values; the result tells the
  * shell what to do:
  *   action         — 'dev-noop' | 'fresh' | 'adopt' | 'noop' |

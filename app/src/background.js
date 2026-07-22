@@ -34,8 +34,11 @@ import { legacyServerUrlToBackend, SERVER_BACKEND_PREF_KEY } from './util/server
 import { createSidecarManager } from './sidecar-manager';
 import {
   LEDGER_FILE, manifestHash, decideLaunch, stampUpdatingTo,
+  filesNeedingVerification, recordVerification,
 } from './util/setup-ledger-core';
 import { MODEL_FILES } from './util/model-manifest';
+import { resolveServingProfile } from './util/serving-profile';
+import { planQuarantine, ORPHAN_DIR } from './util/model-hygiene-core';
 
 // Local storage
 const LocalPreferences = require('./util/local-preferences.js');
@@ -186,7 +189,137 @@ function reconcileInstallState() {
     localprefs.set('welcomeModalShown', false);
   }
   if (decision.writeLedger) writeSetupLedger(decision.writeLedger);
-  if (decision.manifestChanged) notifyModelsChanged();
+  if (decision.manifestChanged) {
+    // Compiled-model caches are keyed to model bytes we can't fully trust
+    // (the gap bucket has no CACHE_KEY yet) — wipe on manifest change. Cost:
+    // one background recompile behind the "Optimizing…" chip.
+    wipeCoremlCache();
+    notifyModelsChanged();
+  }
+  // Models-dir hygiene: quarantine junk now; the deep sha verification runs
+  // async after the window is up (verifyModelShasOnce).
+  if (app.isPackaged) quarantineModelOrphans();
+}
+
+// --- Models-dir hygiene (docs/serving-setup-design.md, Phase 5) -----------
+
+// Move unknown/wrong-size files out of the models dir into .orphaned/
+// (recoverable; the download plan re-fetches anything the profile wants).
+// Packaged only — dev model dirs are hand-managed.
+function quarantineModelOrphans() {
+  const { modelsDir } = getSidecarManager().paths;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(modelsDir, { withFileTypes: true }).map((d) => {
+      let size = null;
+      if (d.isFile()) {
+        try { size = fs.statSync(path.join(modelsDir, d.name)).size; } catch (e) { size = null; }
+      }
+      return {
+        name: d.name,
+        isDirectory: d.isDirectory(),
+        isSymlink: d.isSymbolicLink(),
+        size,
+      };
+    });
+  } catch (e) {
+    return; // no models dir yet — nothing to clean
+  }
+  const doomed = planQuarantine({
+    entries,
+    profileModels: resolveServingProfile(process.platform).models,
+  });
+  if (!doomed.length) return;
+  const orphanDir = path.join(modelsDir, ORPHAN_DIR);
+  try { fs.mkdirSync(orphanDir, { recursive: true }); } catch (e) { return; }
+  doomed.forEach((name) => {
+    try {
+      fs.renameSync(path.join(modelsDir, name), path.join(orphanDir, `${Date.now()}-${name}`));
+      console.log(`[model-hygiene] quarantined ${name}`);
+    } catch (e) {
+      console.error('[model-hygiene] quarantine failed:', e);
+    }
+  });
+}
+
+function wipeCoremlCache() {
+  const { coremlCacheDir } = getSidecarManager().paths;
+  try {
+    fs.rmSync(coremlCacheDir, { recursive: true, force: true });
+    console.log('[model-hygiene] CoreML cache cleared (model manifest changed)');
+  } catch (e) {
+    console.error('[model-hygiene] cache wipe failed:', e);
+  }
+}
+
+function sha256FileMatches(p, expected) {
+  return new Promise((resolve) => {
+    try {
+      const hash = require('crypto').createHash('sha256');
+      const stream = fs.createReadStream(p);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex') === expected));
+      stream.on('error', () => resolve(false));
+    } catch (e) {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * sha-verify-on-reuse (async, after the window exists — never blocks
+ * startup): fully hash any profile model on disk with no memoized pass for
+ * its current (size, mtime) — i.e. files that appeared outside the
+ * downloader, which verifies its own streams. Pass → memoized in the setup
+ * ledger; fail → quarantined (the download plan re-fetches). ~5s/GB, once.
+ */
+async function verifyModelShasOnce() {
+  if (!app.isPackaged) return;
+  const { modelsDir } = getSidecarManager().paths;
+  let diskFiles = [];
+  try {
+    diskFiles = fs.readdirSync(modelsDir, { withFileTypes: true })
+      .filter((d) => d.isFile() || d.isSymbolicLink())
+      .map((d) => {
+        try {
+          const st = fs.statSync(path.join(modelsDir, d.name)); // follows links
+          return {
+            file: d.name, size: st.size, mtimeMs: st.mtimeMs, isSymlink: d.isSymbolicLink(),
+          };
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch (e) {
+    return;
+  }
+  const todo = filesNeedingVerification({
+    diskFiles,
+    profileModels: resolveServingProfile(process.platform).models,
+    verified: (readSetupLedger() || {}).verified,
+  });
+  for (const item of todo) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await sha256FileMatches(path.join(modelsDir, item.file), item.sha256);
+    const ledger = readSetupLedger() || {};
+    if (ok) {
+      writeSetupLedger({
+        ...ledger,
+        verified: recordVerification(ledger.verified, item.file, item),
+      });
+      console.log(`[model-hygiene] sha256 verified ${item.file}`);
+    } else {
+      try {
+        const orphanDir = path.join(modelsDir, ORPHAN_DIR);
+        fs.mkdirSync(orphanDir, { recursive: true });
+        fs.renameSync(path.join(modelsDir, item.file), path.join(orphanDir, `badsha-${item.file}`));
+        console.error(`[model-hygiene] sha256 MISMATCH — quarantined ${item.file}`);
+      } catch (e) {
+        console.error('[model-hygiene] quarantine failed:', e);
+      }
+    }
+  }
 }
 
 // Initialize the dialog handler
@@ -351,6 +484,34 @@ ipcMain.handle('sidecar:status', () => {
 ipcMain.handle('sidecar:stop', () => {
   // Don't lazily create a manager just to stop nothing.
   return sidecarManager ? sidecarManager.stop() : null;
+});
+
+// "Reset embedded backend…" (docs/serving-setup-design.md, Phase 5): wipe
+// the embedded backend's local state — models, CoreML cache, setup ledger,
+// first-run decisions — then relaunch so the reconciler + first-run flow
+// rebuild from scratch. The recoverable escape hatch for any weird state.
+ipcMain.handle('sidecar:reset-embedded', async () => {
+  console.log('[reset-embedded] wiping embedded backend state');
+  try {
+    if (sidecarManager) await sidecarManager.stop();
+  } catch (e) {
+    console.error(e);
+  }
+  const { paths } = getSidecarManager();
+  // Only ever delete dirs under our own userData — a dev CADMIUM_MODELS_DIR
+  // override points at hand-managed files and must never be rm'd.
+  const userData = app.getPath('userData');
+  [paths.modelsDir, paths.coremlCacheDir]
+    .filter((dir) => dir && dir.startsWith(userData))
+    .forEach((dir) => {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { console.error(e); }
+    });
+  try { fs.rmSync(ledgerPath(), { force: true }); } catch (e) { console.error(e); }
+  localprefs.set(SERVER_BACKEND_PREF_KEY, null);
+  localprefs.set('welcomeModalShown', false);
+  app.relaunch();
+  app.exit(0);
+  return null;
 });
 
 // --- Model download/bootstrap (fills <userData>/models from the manifest) --
@@ -518,6 +679,8 @@ app.on('ready', async () => {
   // renderer asks for its prefs.
   reconcileInstallState();
   createWindow();
+  // Deep model verification runs after the window is up — it hashes GBs.
+  verifyModelShasOnce().catch((e) => console.error('[model-hygiene]', e));
 
   var mainMenuObject = await mainMenuFactory();
   Menu.setApplicationMenu(mainMenuObject);

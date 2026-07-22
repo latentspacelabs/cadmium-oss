@@ -71,6 +71,12 @@ export function stopSidecar() {
   return ipcRenderer().invoke('sidecar:stop');
 }
 
+// Wipe the embedded backend's local state (models, CoreML cache, setup
+// ledger, first-run decisions) and relaunch the app as a first run.
+export function resetEmbeddedBackend() {
+  return ipcRenderer().invoke('sidecar:reset-embedded');
+}
+
 // Model download/bootstrap into <userData>/models. Progress pushes arrive on
 // 'sidecar:models-progress' (see util/model-download-status.js); the plan
 // call is a side-effect-free "what would download, how many bytes" probe.

@@ -37,17 +37,16 @@ points at.
 
 ### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
 
-Phases 1–3 shipped 2026-07-22: explicit acceleration status in `/health` +
-Server Settings; Serving Profile (model roles, warn-and-continue accelerator
-downloads, `missingAccel` with a download offer); setup ledger + launch
-reconciler ("not-via-updater = new user"), the GitHub auto-update feed
-(`publish` config), and NSIS `deleteAppDataOnUninstall`. Remaining:
+All five phases shipped 2026-07-22: explicit acceleration status in `/health`
++ Server Settings; Serving Profile (roles, resilient downloads,
+`missingAccel`); setup ledger + reconciler + GitHub auto-update feed + NSIS
+uninstall wipe; the nav-bar acceleration chip; reset button + orphan
+quarantine + cache wipe on manifest change + memoized sha-verify-on-reuse.
+Remaining from the design:
 
-- **P3 — Phase 4: main-window status chip** (Full speed / Reduced — why /
-  Optimizing…), so degradation is visible outside Server Settings.
-- **P3 — Phase 5: reset button, orphan quarantine, cache pruning,**
-  sha-verify-on-reuse memoized in the ledger, gap-bucket `CACHE_KEY` (needs
-  a model re-export).
+- **P3 — gap-bucket `CACHE_KEY` metadata** (needs a model re-export at the
+  next models-v1 asset update; until then a manifest change wipes the whole
+  CoreML cache as the blunt-but-correct fallback).
 
 ---
 
@@ -71,7 +70,6 @@ reconciler ("not-via-updater = new user"), the GitHub auto-update feed
 - Duplicated mouse-move block. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
 - Sidebar height hack (flexbox). → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
 - Colour-wheel timer hack. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
-- First-run model-download visibility: `save()` now starts the download, but the modal then closes and there is no global progress surface — progress is only visible on reopening Server Settings. Consider a persistent download indicator. → [components/ServerSettingsModal.vue:574](../app/src/components/ServerSettingsModal.vue#L574)
 - `evaluateEmbeddedCapability` always reserves +5 GB CoreML cache on macOS even when the compiled cache already exists on disk (conservative double-count; current behavior is codified by a test). Probe the existing cache size to avoid a false disk-blocker on a near-full volume. → [util/embedded-capability.js:76](../app/src/util/embedded-capability.js#L76)
 
 ### P4 — future

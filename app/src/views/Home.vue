@@ -1,6 +1,6 @@
 <template>
   <div class="home">
-    <nav-bar></nav-bar>
+    <nav-bar @open-server-settings="onOpenServerSettings"></nav-bar>
     <main-pane
       class="home__main-pane"
       :welcome-visible="showWelcomeModal && !showServerSettings"
@@ -53,6 +53,11 @@ export default {
     onServerSettingsClose() {
       this.showServerSettings = false;
       this.serverFirstRun = false;
+    },
+    // The nav-bar acceleration chip: open settings in normal (not first-run) mode.
+    onOpenServerSettings() {
+      this.serverFirstRun = false;
+      this.showServerSettings = true;
     },
     onServerBackendSaved(backend) {
       this.serverBackendForModal = backend;
