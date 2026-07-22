@@ -39,6 +39,7 @@ import {
   buildSidecarArgs,
   restartDelayMs,
   describeMissing,
+  missingAccelFiles,
 } from './util/sidecar-core';
 import { embeddedBaseUrl } from './util/server-config';
 
@@ -166,6 +167,7 @@ export class SidecarManager {
     this.paths = resolveSidecarPaths({
       isPackaged, resourcesPath, appPath, userDataPath, env, platform,
     });
+    this.platform = platform;
 
     this.spawnFn = spawnFn;
     this.existsFn = existsFn;
@@ -214,6 +216,10 @@ export class SidecarManager {
       pid: this.child ? this.child.pid : null,
       lastError: this.lastError,
       missing: probeFiles ? missingSidecarFiles(this.paths, this.existsFn) : [],
+      // Absent accelerator (fast-path) models for this platform. Never blocks
+      // — probed in every state so the UI can offer the download that
+      // restores full speed even while the sidecar is READY on CPU.
+      missingAccel: missingAccelFiles(this.paths, this.existsFn, this.platform),
       restarts: this.restarts,
       binPath: this.paths.binPath,
       modelsDir: this.paths.modelsDir,

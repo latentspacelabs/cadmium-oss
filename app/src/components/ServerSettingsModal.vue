@@ -129,9 +129,22 @@
                 </button>
               </div>
             </template>
-            <template v-else-if="missingModels.length">
+            <template v-else-if="missingModels.length || missingAccelModels.length">
               <p v-if="downloadError" class="server-modal__hint server-modal__hint--warn">
                 {{ downloadErrorText }}
+              </p>
+              <p
+                v-else-if="downloadWarningsText"
+                class="server-modal__hint server-modal__hint--warn"
+              >
+                {{ downloadWarningsText }}
+              </p>
+              <p
+                v-else-if="!missingModels.length"
+                class="server-modal__hint server-modal__hint--warn"
+              >
+                <!-- eslint-disable-next-line max-len -->
+                {{ t('Hardware-acceleration files are missing — colorization works but runs slower on the CPU.') }}
               </p>
               <button
                 class="server-modal__btn server-modal__btn--secondary"
@@ -382,6 +395,24 @@ export default {
     missingModels() {
       const s = this.sidecarStatus;
       return ((s && s.missing) || []).filter((m) => m.kind === 'model');
+    },
+    // Absent optional fast-path models (Serving Profile role 'accelerator'):
+    // the sidecar still runs, but on the CPU — offer the download that
+    // restores full speed.
+    missingAccelModels() {
+      const s = this.sidecarStatus;
+      return (s && s.missingAccel) || [];
+    },
+    // Accelerator files that failed during an otherwise-successful download
+    // run ([{file, error}] on a 'done' snapshot).
+    downloadWarnings() {
+      const p = this.downloadProgress;
+      return (p && p.state === 'done' && p.warnings) || [];
+    },
+    downloadWarningsText() {
+      if (!this.downloadWarnings.length) return '';
+      const files = this.downloadWarnings.map((w) => w.file).join(', ');
+      return t('Some acceleration files failed to download: {{files}} — retry to enable full speed.', { files });
     },
     downloadActive() {
       const state = this.downloadProgress && this.downloadProgress.state;

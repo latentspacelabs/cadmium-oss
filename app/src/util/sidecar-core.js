@@ -18,6 +18,7 @@
  */
 
 import path from 'path';
+import { acceleratorModels } from './serving-profile';
 
 // Lifecycle states (see sidecar-manager.js for the transitions).
 export const SIDECAR_STATES = {
@@ -110,6 +111,19 @@ export function missingSidecarFiles(paths, existsFn) {
     missing.push({ kind: 'model', file: MODEL_GAP, path: paths.gapModelPath });
   }
   return missing;
+}
+
+/**
+ * Which of THIS platform's accelerator models (the Serving Profile's optional
+ * fast-path exports) are absent, as [{ kind, file, path }]. Never blocks a
+ * spawn — the sidecar serves on CPU without them — but their absence is a
+ * degradation the UI must surface (docs/serving-setup-design.md): a missing
+ * gap bucket is the difference between ~1.3s and ~20s per analyzed frame.
+ */
+export function missingAccelFiles(paths, existsFn, platform) {
+  return acceleratorModels(platform)
+    .map((m) => ({ kind: 'accelerator', file: m.file, path: path.join(paths.modelsDir, m.file) }))
+    .filter((m) => !existsFn(m.path));
 }
 
 /**

@@ -89,8 +89,11 @@ export class ModelDownloader {
     this._runPromise = null;
     this._cancelled = false;
     this._activeRequest = null;
-    this._lastProgress = { state: 'idle', file: null, fileIndex: 0, fileCount: 0, receivedBytes: 0, totalBytes: 0, error: null };
+    this._lastProgress = { state: 'idle', file: null, fileIndex: 0, fileCount: 0, receivedBytes: 0, totalBytes: 0, error: null, warnings: [] };
     this._lastPushAt = 0;
+    // Accelerator files that failed during the current run ([{file, error}]);
+    // the run continues past them (see _run) and reports them on 'done'.
+    this._warnings = [];
   }
 
   /** What would download right now, without starting anything. */
@@ -135,6 +138,7 @@ export class ModelDownloader {
 
   async _run() {
     this.fsLib.mkdirSync(this.modelsDir, { recursive: true });
+    this._warnings = [];
     const plan = this.plan();
     if (!plan.length) {
       return this._push({ state: 'done', plan, planIndex: plan.length }, true);
@@ -149,6 +153,14 @@ export class ModelDownloader {
         try { this.fsLib.rmSync(item.partPath, { force: true }); } catch (e) { /* best effort */ }
         if (this._cancelled) {
           return this._push({ state: 'cancelled', plan, planIndex: i }, true);
+        }
+        // An accelerator (optional fast-path model) failing must not sink the
+        // required files behind it — record the degradation and carry on. A
+        // required failure still fails the run.
+        if (item.role === 'accelerator') {
+          this.logFn(`accelerator ${item.file} failed (${err.message}); continuing`);
+          this._warnings.push({ file: item.file, error: err.message });
+          continue;
         }
         this.logFn(`failed on ${item.file}: ${err.message}`);
         return this._push({ state: 'failed', plan, planIndex: i, error: `${item.file}: ${err.message}` }, true);
@@ -216,7 +228,7 @@ export class ModelDownloader {
 
   // Throttled progress push; `force` for state transitions and terminals.
   _push(snapshotArgs, force = false) {
-    const snap = progressSnapshot(snapshotArgs);
+    const snap = progressSnapshot({ warnings: this._warnings, ...snapshotArgs });
     const stateChanged = snap.state !== this._lastProgress.state;
     this._lastProgress = snap;
     const now = this.nowFn();

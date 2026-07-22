@@ -311,3 +311,64 @@ describe('ModelDownloader', () => {
     expect(request.calls.length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Accelerator failures (Serving Profile roles — docs/serving-setup-design.md)
+// ---------------------------------------------------------------------------
+
+describe('ModelDownloader — accelerator failures', () => {
+  const REQUIRED = { ...ITEM, role: 'required' };
+  const ACCEL = {
+    file: 'accel.onnx',
+    url: 'https://example.test/accel.onnx',
+    bytes: 3,
+    sha256: '0'.repeat(64), // never verified: these tests fail it before that
+    role: 'accelerator',
+    destPath: '/ud/models/accel.onnx',
+    partPath: '/ud/models/accel.onnx.part',
+  };
+
+  it('an accelerator failure records a warning and the run continues to done', async () => {
+    const { dl, fs, request } = makeDownloader({ plan: [ACCEL, REQUIRED] });
+    const run = dl.start();
+
+    request.calls[0].handlers.onResponse(404); // the optional fast-path model
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(request.calls.length).toBe(2); // the required file still downloads
+    request.calls[1].handlers.onResponse(200);
+    CHUNKS.forEach((c) => request.calls[1].handlers.onData(c));
+    request.calls[1].handlers.onEnd();
+    const result = await run;
+
+    expect(result.state).toBe('done');
+    expect(result.warnings).toEqual([
+      { file: 'accel.onnx', error: expect.stringContaining('404') },
+    ]);
+    expect(fs.removed).toContain(ACCEL.partPath); // no half-written leftovers
+    expect(fs.renames).toEqual([[REQUIRED.partPath, REQUIRED.destPath]]);
+  });
+
+  it('a required failure still fails the whole run', async () => {
+    const { dl, request } = makeDownloader({ plan: [REQUIRED, ACCEL] });
+    const run = dl.start();
+
+    request.calls[0].handlers.onResponse(404);
+    const result = await run;
+
+    expect(result.state).toBe('failed');
+    expect(result.error).toContain(REQUIRED.file);
+    expect(request.calls.length).toBe(1); // nothing after the hard failure
+  });
+
+  it('cancel during an accelerator still resolves cancelled, not done-with-warnings', async () => {
+    const { dl, request } = makeDownloader({ plan: [ACCEL, REQUIRED] });
+    const run = dl.start();
+    request.calls[0].handlers.onResponse(200);
+    dl.cancel();
+    request.calls[0].handlers.onError(new Error('aborted'));
+    const result = await run;
+    expect(result.state).toBe('cancelled');
+  });
+});

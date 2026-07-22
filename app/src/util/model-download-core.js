@@ -15,11 +15,14 @@
  */
 
 import path from 'path';
-import { MODEL_FILES, modelUrl } from './model-manifest';
+import { resolveServingProfile } from './serving-profile';
 
-/** Manifest entries this platform wants, in download order. */
+/**
+ * Manifest entries this platform wants, in download order — the Serving
+ * Profile's model list (each entry carries its `role`).
+ */
 export function wantedModelFiles(platform) {
-  return MODEL_FILES.filter((m) => m.required || m.platform === platform);
+  return resolveServingProfile(platform).models;
 }
 
 /**
@@ -31,9 +34,12 @@ export function planModelDownloads({ modelsDir, platform, sizeFn }) {
     .filter((m) => sizeFn(path.join(modelsDir, m.file)) !== m.bytes)
     .map((m) => ({
       file: m.file,
-      url: modelUrl(m.file),
+      url: m.url,
       bytes: m.bytes,
       sha256: m.sha256,
+      // 'required' | 'accelerator' — the downloader fails the run on a
+      // required failure but only warns (and continues) on an accelerator.
+      role: m.role,
       destPath: path.join(modelsDir, m.file),
       // Streamed here first; renamed onto destPath only after size+sha256
       // verify, so a half-written file can never satisfy the sidecar's
@@ -54,10 +60,12 @@ export function formatGB(bytes) {
 /**
  * One progress snapshot, the shape pushed over 'sidecar:models-progress'.
  * `state`: idle | downloading | verifying | done | failed | cancelled.
- * Byte counts span the whole plan, not the current file.
+ * Byte counts span the whole plan, not the current file. `warnings` lists
+ * accelerator files that failed while the run carried on ([{file, error}]) —
+ * a `done` with warnings means "usable, but not at full speed".
  */
 export function progressSnapshot({
-  state, plan, planIndex = 0, currentReceived = 0, error = null,
+  state, plan, planIndex = 0, currentReceived = 0, error = null, warnings = [],
 }) {
   const doneBytes = plan.slice(0, planIndex).reduce((s, i) => s + i.bytes, 0);
   const current = plan[planIndex] || null;
@@ -69,5 +77,6 @@ export function progressSnapshot({
     receivedBytes: doneBytes + currentReceived,
     totalBytes: totalPlanBytes(plan),
     error,
+    warnings,
   };
 }

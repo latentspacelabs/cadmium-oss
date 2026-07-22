@@ -558,3 +558,27 @@ describe('SidecarManager — health body / acceleration report', () => {
     expect(h.manager.getStatus().health).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Accelerator-model visibility (Serving Profile, Phase 2)
+// ---------------------------------------------------------------------------
+
+describe('SidecarManager — missingAccel in the status', () => {
+  it('lists absent darwin accelerator models without blocking readiness', async () => {
+    const h = makeHarness({
+      exists: (p) => !p.endsWith(MODEL_ANT_BUCKET) && !p.endsWith(MODEL_GAP_BUCKET),
+    });
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY); // accelerators never block
+    expect(status.missingAccel.map((m) => m.file).sort()).toEqual([
+      MODEL_ANT_BUCKET, MODEL_GAP_BUCKET,
+    ]);
+    expect(status.missing).toEqual([]);
+  });
+
+  it('is empty when every accelerator is present', async () => {
+    const h = makeHarness();
+    const status = await h.manager.ensureStarted();
+    expect(status.missingAccel).toEqual([]);
+  });
+});
