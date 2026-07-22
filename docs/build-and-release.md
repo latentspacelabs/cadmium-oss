@@ -159,10 +159,24 @@ real run yet — expect the first signed Windows build to need a shakedown.
 ## 5. App releases & auto-update
 
 Push a `v*` tag → full pipeline → draft release with dmg/zip/exe and the
-updater feed `.yml`s attached. The `publish` config in
-`app/electron-builder.json` (provider github, this repo) is what the
-in-app electron-updater reads; it only sees published releases, and on a
-private repo it would need a token — moot until the repo is public.
+updater feed `.yml`s attached. The `publish` block in `app/vue.config.js`
+`builderOptions` (provider github, this repo) is baked into the packaged
+app's `app-update.yml` — that is the feed the in-app electron-updater polls.
+CI builds with `--publish never`, so publishing stays the manual
+review-then-publish step; the updater only sees *published, non-draft*
+releases (and on a private repo it would need a token — moot once public).
+Keep the `models-v1` release un-"Latest" so the updater never mistakes it
+for an app release.
+
+Install identity (docs/serving-setup-design.md, Phase 3): the app records
+every legitimate version transition in `<userData>/setup-ledger.json`. The
+in-app updater stamps `updatingTo` before `quitAndInstall`, so its relaunch
+is seamless; a packaged launch whose version doesn't match the ledger and
+has no stamp (manual download over an existing install, downgrade,
+reinstall-after-delete) resets the first-run decisions and reruns
+onboarding — model files stay and are re-verified by the download plan. On
+Windows, NSIS `deleteAppDataOnUninstall` makes uninstall→reinstall a true
+fresh user.
 
 ## 6. Model artifacts
 
@@ -181,6 +195,9 @@ Release (the tag doesn't match `v*`, so it never triggers app builds):
   ~20% slower there than the stock scatter), hence a variant rather than the
   universal export.
 - `gap_closer_fp32.onnx` (0.50 GB) — GapCloser, the parity anchor. Required.
+- `gap_closer_fp32_bucket.onnx` (0.50 GB) — batch-24-pinned CoreML fast path
+  for `/segment` gap closing (same weights, pinned batch dim). Optional,
+  macOS-only (`platform: 'darwin'`).
 
 `app/src/util/model-manifest.js` is the single source of truth: names,
 byte sizes, sha256 hashes, release tag/URL. CommonJS on purpose so both

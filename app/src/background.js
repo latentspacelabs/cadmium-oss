@@ -3,7 +3,7 @@
 
 // Electron imports
 import {
-  app, protocol, BrowserWindow, Menu, ipcMain,
+  app, protocol, BrowserWindow, Menu, ipcMain, Notification,
 } from 'electron';
 // Using custom createProtocol with font MIME type support instead of the one from
 // vue-cli-plugin-electron-builder, which doesn't set MIME types for .woff, .woff2, .ttf, .eot
@@ -14,6 +14,7 @@ import { initialize as initializeRemote, enable as enableRemote } from '@electro
 
 // Utility imports
 import path from 'path';
+import fs from 'fs';
 const createTextVersion = require("textversionjs");
 const { clipboard } = require('electron');
 
@@ -29,8 +30,12 @@ import { getInstance } from './util/TempFileManager';
 import { showDialogFromMain, initializeDialogHandler } from './util/mainProcessDialog.js';
 
 import { isProduction } from './util/app-util';
-import { legacyServerUrlToBackend } from './util/server-config';
+import { legacyServerUrlToBackend, SERVER_BACKEND_PREF_KEY } from './util/server-config';
 import { createSidecarManager } from './sidecar-manager';
+import {
+  LEDGER_FILE, manifestHash, decideLaunch, stampUpdatingTo,
+} from './util/setup-ledger-core';
+import { MODEL_FILES } from './util/model-manifest';
 
 // Local storage
 const LocalPreferences = require('./util/local-preferences.js');
@@ -112,6 +117,76 @@ if (!localprefs.get('serverBackend')) {
   if (migrated) {
     localprefs.set('serverBackend', migrated);
   }
+}
+
+// --- Setup ledger: install identity (docs/serving-setup-design.md, Ph. 3) --
+// Pure decisions in util/setup-ledger-core.js; this is the fs/pref shell.
+
+function ledgerPath() {
+  return path.join(app.getPath('userData'), LEDGER_FILE);
+}
+
+function readSetupLedger() {
+  try {
+    return JSON.parse(fs.readFileSync(ledgerPath(), 'utf8'));
+  } catch (e) {
+    return null; // absent or unreadable — decideLaunch treats both as "no ledger"
+  }
+}
+
+function writeSetupLedger(ledger) {
+  try {
+    const stamped = { ...ledger, updatedAt: new Date().toISOString() };
+    fs.writeFileSync(ledgerPath(), `${JSON.stringify(stamped, null, 2)}\n`);
+  } catch (e) {
+    console.error('[setup-ledger] write failed:', e);
+  }
+}
+
+// An in-place update brought a manifest that wants new/changed model files —
+// say so (never silent, never a surprise download); click opens Server
+// Settings, whose download button + missingAccel hints carry the remediation.
+function notifyModelsChanged() {
+  try {
+    const n = new Notification({
+      title: t('Cadmium update'),
+      // eslint-disable-next-line max-len
+      body: t('This update includes new model files. Open Server Settings to download them.'),
+    });
+    n.on('click', () => {
+      if (win && win.webContents) win.webContents.send('show-server-settings', true);
+    });
+    n.show();
+  } catch (e) {
+    console.error('[setup-ledger] notification failed:', e);
+  }
+}
+
+/**
+ * Reconcile install identity at launch (called from 'ready', BEFORE the
+ * window exists, so a first-run reset lands before the renderer asks for its
+ * prefs). Out-of-band installs — a version change with no updater stamp —
+ * reset the first-run decisions (backend choice, welcome flag) and rerun
+ * onboarding; model files stay (content-addressed cache, re-verified by the
+ * download plan). In-app updates ('updatingTo' stamped by 'update-cadmium')
+ * stay seamless.
+ */
+function reconcileInstallState() {
+  const decision = decideLaunch({
+    ledger: readSetupLedger(),
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    hasBackendPref: !!localprefs.get(SERVER_BACKEND_PREF_KEY),
+    currentManifestHash: manifestHash(MODEL_FILES),
+  });
+  console.log(`[setup-ledger] launch decision: ${decision.action}`);
+  if (decision.resetFirstRun) {
+    console.log('[setup-ledger] out-of-band install — resetting first-run state');
+    localprefs.set(SERVER_BACKEND_PREF_KEY, null);
+    localprefs.set('welcomeModalShown', false);
+  }
+  if (decision.writeLedger) writeSetupLedger(decision.writeLedger);
+  if (decision.manifestChanged) notifyModelsChanged();
 }
 
 // Initialize the dialog handler
@@ -439,6 +514,9 @@ app.on('ready', async () => {
     }
   }
   menuSetLocale();
+  // Before the window exists: a first-run reset must land before the
+  // renderer asks for its prefs.
+  reconcileInstallState();
   createWindow();
 
   var mainMenuObject = await mainMenuFactory();
@@ -515,6 +593,11 @@ app.on('ready', async () => {
   });
 
   ipcMain.on('update-cadmium', (event) => {
+    // Stamp the update intent so the relaunch is recognized as an in-app
+    // update (seamless) rather than an out-of-band install (first-run reset).
+    if (pendingUpdateVersion) {
+      writeSetupLedger(stampUpdatingTo(readSetupLedger(), pendingUpdateVersion));
+    }
     autoUpdater.quitAndInstall();
   });
 
@@ -658,7 +741,12 @@ function formatReleaseNotesAsBullets(releaseNotesHTML) {
   }
 }
 
+// The version an in-flight update will install — stamped into the setup
+// ledger by 'update-cadmium' right before quitAndInstall.
+let pendingUpdateVersion = null;
+
 autoUpdater.on('update-available', (updateInfo) => {
+  pendingUpdateVersion = updateInfo.version;
   const releaseNotesHTML = updateInfo.releaseNotes;
   var releaseNotesText = formatReleaseNotesAsBullets(releaseNotesHTML);
 
@@ -693,8 +781,9 @@ autoUpdater.on('update-available', (updateInfo) => {
         autoUpdater.downloadUpdate();
         win.webContents.send('update-in-progress', true);
       } else if (result.response === 1) {
+        // (An undeclared `choseToUpdate = false` lived here — write-only, and
+        // a ReferenceError in the strict-mode bundle. Removed.)
         console.log("User opted out of update");
-        choseToUpdate = false;
       }
     });
   }

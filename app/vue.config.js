@@ -55,6 +55,27 @@ module.exports = {
       builderOptions: {
         // options placed here will be merged with default configuration
         // and passed to electron-builder
+        //
+        // Auto-update feed: electron-builder bakes this into the packaged
+        // app's app-update.yml, which electron-updater reads at runtime to
+        // poll GitHub releases (latest.yml / latest-mac.yml + the dmg/zip/
+        // exe assets CI uploads). CI builds with `--publish never` — this
+        // block only configures the FEED; publishing stays the manual
+        // review-then-publish step (electron-updater only sees published,
+        // non-draft releases). Keep the models-v1 release un-"latest" so the
+        // updater never mistakes it for an app release.
+        publish: {
+          provider: 'github',
+          owner: 'latentspacelabs',
+          repo: 'cadmium-oss',
+        },
+        nsis: {
+          // Uninstall = forget me: wipe userData (prefs, setup ledger,
+          // models, caches) so a reinstall is a true fresh user
+          // (docs/serving-setup-design.md, Phase 3). macOS has no uninstall
+          // hook; the setup ledger emulates this at next launch.
+          deleteAppDataOnUninstall: true,
+        },
         // locales/ is no longer shipped as extra files: the i18next catalogs
         // are require'd into the bundles at build time (src/util/i18n.js) and
         // nothing reads Resources/locales at runtime anymore.

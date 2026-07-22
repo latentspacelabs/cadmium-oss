@@ -139,6 +139,6 @@ verified files, it was unverified presence-by-filename, which Layer 2 kills.
 |---|---|---|---|
 | 1 | Acceleration report in `/health` + Settings rows | `engine.rs`, `contract.rs`, `sidecar-manager.js`, `ServerSettingsModal.vue` | **shipped** |
 | 2 | Serving Profile + downloader/missing-files unification (roles; accelerator failures warn-and-continue; `missingAccel` in the sidecar status + Settings download offer). sha-verify-on-reuse moves to Phase 3 with the ledger that memoizes it. | `app/src/util/serving-profile.js`, `model-download-core.js`, `model-downloader.js`, `sidecar-core.js`, `ServerSettingsModal.vue` | **shipped** |
-| 3 | Setup ledger + launch reconciler + update toast + NSIS `deleteAppDataOnUninstall` | `background.js`, new `model-reconciler.js`, `vue.config.js` | todo |
+| 3 | Setup ledger + launch reconciler + manifest-change notification + NSIS `deleteAppDataOnUninstall` + the GitHub auto-update feed itself (`publish` config — previously absent, so packaged builds had no feed at all). sha memoization for model reuse folds into Phase 5's validator. | `util/setup-ledger-core.js`, `background.js`, `vue.config.js` | **shipped** |
 | 4 | Main-window status chip (Full speed / Reduced — why / Optimizing…) | main window UI | todo |
 | 5 | Reset button, orphan quarantine, cache pruning, gap `CACHE_KEY` (needs model re-export) | Settings, downloader, export tooling | todo |

@@ -425,8 +425,8 @@ Deliberate, tracked debt (in rough priority order):
   the stock Cypress scaffold under `tests/e2e/` (`plugins/`, `support/`,
   `specs/test.js`).
 - **Small real bugs found while reading**:
-  - `background.js:564` assigns an undeclared `choseToUpdate` (implicit
-    global; harmless today, dead variable).
+  - ~~`background.js` assigned an undeclared `choseToUpdate`~~ — removed
+    2026-07-22 (write-only; a ReferenceError in the strict-mode bundle).
   - `loadcdm` backfill defaults disagree with `state.js` defaults for legacy
     files: `maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1,
     `minSegSize` 1 vs 10 (`undo-redo-plugin.js:511-519` vs

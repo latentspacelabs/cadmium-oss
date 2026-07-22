@@ -37,19 +37,17 @@ points at.
 
 ### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
 
-Phases 1 (explicit acceleration status in `/health` + Server Settings) and 2
-(Serving Profile: model roles, warn-and-continue accelerator downloads,
-`missingAccel` surfaced with a download offer) shipped 2026-07-22. Remaining:
+Phases 1–3 shipped 2026-07-22: explicit acceleration status in `/health` +
+Server Settings; Serving Profile (model roles, warn-and-continue accelerator
+downloads, `missingAccel` with a download offer); setup ledger + launch
+reconciler ("not-via-updater = new user"), the GitHub auto-update feed
+(`publish` config), and NSIS `deleteAppDataOnUninstall`. Remaining:
 
-- **P2 — Phase 3: setup ledger + launch reconciler.** Out-of-band installs
-  (manual download, downgrade, reinstall-after-delete) rerun first-run;
-  in-app updates stay seamless via an `updatingTo` stamp around
-  `quitAndInstall()`; NSIS `deleteAppDataOnUninstall` on Windows;
-  sha-verify-on-reuse memoized in the ledger.
 - **P3 — Phase 4: main-window status chip** (Full speed / Reduced — why /
   Optimizing…), so degradation is visible outside Server Settings.
-- **P3 — Phase 5: reset button, orphan quarantine, cache pruning,** gap-bucket
-  `CACHE_KEY` (needs a model re-export).
+- **P3 — Phase 5: reset button, orphan quarantine, cache pruning,**
+  sha-verify-on-reuse memoized in the ledger, gap-bucket `CACHE_KEY` (needs
+  a model re-export).
 
 ---
 
@@ -58,7 +56,7 @@ Phases 1 (explicit acceleration status in `/health` + Server Settings) and 2
 ### P1 — correctness
 - Possible out-of-bounds layer index. → [store/getters.js:140](../app/src/store/getters.js#L140), [store/getters.js:158](../app/src/store/getters.js#L158)
 - Missing validation when color images are added before line images. → [store/actions.js:1144](../app/src/store/actions.js#L1144)
-- Small bugs catalogued in the app doc: `background.js` undeclared `choseToUpdate`; loadcdm backfill defaults disagree with `state.js` (`maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10, `autoAlpha` missing); `validateFrameNumber` accepts 1000 vs copy's 999. → [docs/app.md:339](app.md#L339)
+- Small bugs catalogued in the app doc: loadcdm backfill defaults disagree with `state.js` (`maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10, `autoAlpha` missing); `validateFrameNumber` accepts 1000 vs copy's 999. (`choseToUpdate` fixed 2026-07-22.) → [docs/app.md:339](app.md#L339)
 
 ### P2 — performance
 - Segmentation map recomputed unconditionally; add a checksum cache. → [util/segmentation.js:32](../app/src/util/segmentation.js#L32)
