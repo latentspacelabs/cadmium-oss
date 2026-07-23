@@ -238,6 +238,14 @@ jobs:
           $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
           if (-not $cert) { throw "eSigner CKA loaded no code-signing cert" }
           echo "CADMIUM_WIN_SIGN_SHA1=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          # electron-builder's bundled signtool (winCodeSign cache) is too old
+          # to sign with KSP-provided keys like eSigner CKA's ("No certificates
+          # were found that met all the given criteria"); use the runner's
+          # Windows SDK signtool instead — electron-builder honors SIGNTOOL_PATH.
+          $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $st) { throw "no Windows SDK signtool.exe found on runner" }
+          echo "SIGNTOOL_PATH=$($st.FullName)" >> $env:GITHUB_ENV
       # win-node-env (a dependency) makes the NODE_ENV=... script prefix work
       # under cmd.exe, so the same npm script runs on Windows unchanged.
       # CADMIUM_WIN_SIGN_SHA1 (set by the step above, or absent) is picked up
