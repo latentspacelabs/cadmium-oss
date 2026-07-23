@@ -145,6 +145,10 @@ jobs:
             # path was given" and path.resolve('')-> cwd, which is not a file.
             # Unset them so it falls back to an ad-hoc signature instead.
             unset CSC_LINK CSC_KEY_PASSWORD
+            # An ad-hoc build can't be notarized: with the APPLE_* secrets
+            # set but no signing cert, notarytool 403s and fails the job.
+            # Skip notarization entirely for unsigned builds.
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CADMIUM_UNSIGNED_LOCAL_BUILD=1
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
@@ -220,9 +224,14 @@ jobs:
         if: ${{ env.ES_USERNAME != '' }}
         shell: powershell
         run: |
-          Invoke-WebRequest -OutFile eSigner_CKA_Setup.exe "https://www.ssl.com/download/ssl-com-esigner-cka/"
+          # Pinned GitHub release asset: the ssl.com landing-page URL serves
+          # HTML, not the installer ("not a valid application for this OS").
+          Invoke-WebRequest -OutFile eSignerCKA.zip "https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.7/SSL.COM-eSigner-CKA_1.0.7.zip"
+          Expand-Archive eSignerCKA.zip -DestinationPath eSignerCKA-setup -Force
+          $setup = Get-ChildItem eSignerCKA-setup -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $setup) { throw "eSigner CKA zip contained no installer exe" }
           New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
-          Start-Process .\eSigner_CKA_Setup.exe -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
+          Start-Process $setup.FullName -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
           C:\esigner\eSignerCKA.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
           C:\esigner\eSignerCKA.exe unload
           C:\esigner\eSignerCKA.exe load
