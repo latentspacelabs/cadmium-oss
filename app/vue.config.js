@@ -56,6 +56,13 @@ module.exports = {
         // options placed here will be merged with default configuration
         // and passed to electron-builder
         //
+        // Explicit bundle/app identity (defaults to com.electron.cadmium
+        // otherwise). Must match the appBundleId in notarize.js; set BEFORE
+        // the first signed/notarized release — signing ties the app's
+        // Gatekeeper/notarization identity to this id, and changing it later
+        // makes updates look like a different application.
+        appId: 'com.latentspacelabs.cadmium',
+        //
         // Auto-update feed: electron-builder bakes this into the packaged
         // app's app-update.yml, which electron-updater reads at runtime to
         // poll GitHub releases (latest.yml / latest-mac.yml + the dmg/zip/
