@@ -93,6 +93,12 @@ export function cancelModelDownload() {
   return ipcRenderer().invoke('sidecar:cancel-download');
 }
 
+// Delete downloaded model files + CoreML cache to free disk space, keeping
+// prefs/ledger/first-run state (unlike resetEmbeddedBackend — no relaunch).
+export function clearDownloadedModels() {
+  return ipcRenderer().invoke('sidecar:clear-models');
+}
+
 export function getModelDownloadProgress() {
   return ipcRenderer().invoke('sidecar:models-progress');
 }

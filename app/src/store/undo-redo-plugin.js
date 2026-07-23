@@ -527,6 +527,13 @@ export function loadcdm(stateObject) {
   if (!newState.autoAlpha){
     newState.autoAlpha = false;
   }
+  if (typeof newState.aiGapCloserEnabled !== 'boolean') {
+    // Files saved before this field existed load a state object WITHOUT the
+    // key; after replaceState Vue 2 can't make an absent property reactive,
+    // so the SegOptions toggle looks dead (commits write a value no watcher
+    // ever sees). Backfill with the fresh-app default.
+    newState.aiGapCloserEnabled = true;
+  }
   
   // Initialize progress states if they don't exist in the loaded file
   if (!newState.updatedColorsProgress) {

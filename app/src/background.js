@@ -555,6 +555,32 @@ ipcMain.handle('sidecar:cancel-download', () => {
   return null;
 });
 
+// Free disk space WITHOUT touching install identity (unlike reset-embedded):
+// stop the sidecar, delete the downloaded model files (+ .part leftovers)
+// and the derived CoreML compile cache, and return. Prefs, ledger, and
+// first-run state stay; the Server Settings modal simply shows the download
+// button again. Dev setups are respected: symlinked model files (hand-made
+// overrides) are left alone, and nothing outside userData is ever deleted.
+ipcMain.handle('sidecar:clear-models', async () => {
+  const manager = getSidecarManager();
+  try { await manager.stop(); } catch (e) { console.error(e); }
+  const { paths } = manager;
+  const userData = app.getPath('userData');
+  const modelsDir = paths.modelsDir;
+  if (modelsDir && modelsDir.startsWith(userData)) {
+    let entries = [];
+    try { entries = fs.readdirSync(modelsDir, { withFileTypes: true }); } catch (e) { /* gone */ }
+    entries.forEach((entry) => {
+      if (!entry.isFile()) return; // skips symlinks (dev overrides) and dirs
+      try { fs.rmSync(path.join(modelsDir, entry.name), { force: true }); } catch (e) { console.error(e); }
+    });
+  }
+  if (paths.coremlCacheDir && paths.coremlCacheDir.startsWith(userData)) {
+    try { fs.rmSync(paths.coremlCacheDir, { recursive: true, force: true }); } catch (e) { console.error(e); }
+  }
+  return null;
+});
+
 // Snapshot for late subscribers (modal reopened mid-download).
 ipcMain.handle('sidecar:models-progress', () => {
   return modelDownloader ? modelDownloader.getProgress() : { state: 'idle' };

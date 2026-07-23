@@ -311,6 +311,27 @@ describe('loadcdm — clears undo/redo history', () => {
     });
     expect(store.state.serverBackend).toEqual(mine);
   });
+
+  it('backfills aiGapCloserEnabled for pre-field files (absent key = non-reactive = dead toggle)', () => {
+    const store = makeStore();
+    loadcdm({
+      colorPalette: [],
+      PenTool: {},
+      ToolControls: { toolControlItems: [], toolControlItemIds: [] },
+      layers: {},
+    });
+    expect(store.state.aiGapCloserEnabled).toBe(true);
+
+    // An explicit saved false must survive the backfill untouched.
+    loadcdm({
+      colorPalette: [],
+      PenTool: {},
+      ToolControls: { toolControlItems: [], toolControlItemIds: [] },
+      layers: {},
+      aiGapCloserEnabled: false,
+    });
+    expect(store.state.aiGapCloserEnabled).toBe(false);
+  });
 });
 
 describe('selection undo — coalescing and isSelected-only filtering', () => {

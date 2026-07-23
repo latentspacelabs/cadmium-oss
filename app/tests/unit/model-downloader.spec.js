@@ -255,6 +255,30 @@ describe('ModelDownloader', () => {
     expect(fs.removed).toContain(ITEM.partPath);
   });
 
+  it('cancel between files resolves cancelled without starting the next request', async () => {
+    const chunks2 = [Buffer.from('abc')];
+    const item2 = {
+      file: 'n.onnx',
+      url: 'https://example.test/n.onnx',
+      bytes: 3,
+      sha256: sha256Hex(chunks2),
+      destPath: '/ud/models/n.onnx',
+      partPath: '/ud/models/n.onnx.part',
+    };
+    const { dl, request } = makeDownloader({ plan: [ITEM, item2] });
+    const run = dl.start();
+    request.calls[0].handlers.onResponse(200);
+    CHUNKS.forEach((c) => request.calls[0].handlers.onData(c));
+    request.calls[0].handlers.onEnd();
+    // Lands in the verify/rename window: no request in flight to abort, so
+    // only the loop-head _cancelled check can stop the run.
+    dl.cancel();
+    const result = await run;
+
+    expect(result.state).toBe('cancelled');
+    expect(request.calls.length).toBe(1); // second file never requested
+  });
+
   it('downloads files sequentially and reports plan-wide byte progress', async () => {
     const chunks2 = [Buffer.from('abc')];
     const item2 = {

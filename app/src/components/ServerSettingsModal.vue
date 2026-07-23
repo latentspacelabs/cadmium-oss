@@ -154,6 +154,39 @@
               </button>
             </template>
 
+            <div
+              v-if="!firstRun && !downloadActive && !missingModels.length"
+              class="server-modal__reset"
+            >
+              <button
+                v-if="!clearConfirming"
+                class="server-modal__btn server-modal__btn--ghost"
+                @click="clearConfirming = true"
+              >
+                {{ t('Delete downloaded models…') }}
+              </button>
+              <template v-else>
+                <p class="server-modal__hint server-modal__hint--warn">
+                  <!-- eslint-disable-next-line max-len -->
+                  {{ t('Frees disk space by deleting the model files. Local processing stops working until you download them again. Your projects and settings are not affected.') }}
+                </p>
+                <div class="server-modal__embedded-row">
+                  <button
+                    class="server-modal__btn server-modal__btn--secondary"
+                    @click="clearModels"
+                  >
+                    {{ t('Delete models') }}
+                  </button>
+                  <button
+                    class="server-modal__btn server-modal__btn--ghost"
+                    @click="clearConfirming = false"
+                  >
+                    {{ t('Cancel') }}
+                  </button>
+                </div>
+              </template>
+            </div>
+
             <div v-if="!firstRun" class="server-modal__reset">
               <button
                 v-if="!resetConfirming"
@@ -269,7 +302,7 @@ import {
 import {
   setPref, ensureSidecar, getSidecarStatus, stopSidecar, resetEmbeddedBackend,
   getModelDownloadPlan, downloadModels, cancelModelDownload, getModelDownloadProgress,
-  getSystemCapabilities,
+  clearDownloadedModels, getSystemCapabilities,
 } from '@/platform';
 import {
   updateSidecarStatus, getLastSidecarStatus, onSidecarStatus,
@@ -325,6 +358,7 @@ export default {
       capabilities: null,
       // Two-step confirm for "Reset embedded backend…".
       resetConfirming: false,
+      clearConfirming: false,
     };
   },
   computed: {
@@ -508,6 +542,7 @@ export default {
         this.url = (backend && backend.baseUrl) || DEFAULT_SERVER_URL;
         this.resetTest();
         this.resetConfirming = false;
+        this.clearConfirming = false;
         this.refreshSidecarStatus();
         this.refreshDownloadPlan();
         this.loadCapabilities();
@@ -650,6 +685,17 @@ export default {
       // The main process wipes models/caches/ledger and relaunches the app;
       // nothing to do here afterwards.
       resetEmbeddedBackend().catch(() => {});
+    },
+    clearModels() {
+      // Unlike resetEmbedded there is no relaunch: refresh status + plan so
+      // the modal flips straight to the "Download models" offer.
+      clearDownloadedModels()
+        .catch(() => {})
+        .then(() => {
+          this.clearConfirming = false;
+          this.refreshSidecarStatus();
+          this.refreshDownloadPlan();
+        });
     },
     cancelDownload() {
       cancelModelDownload().catch(() => {});

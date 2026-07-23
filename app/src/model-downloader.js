@@ -38,8 +38,14 @@ function defaultStreamRequest(url, handlers) {
     res.on('data', (chunk) => handlers.onData(chunk));
     res.on('end', () => handlers.onEnd());
     res.on('error', (err) => handlers.onError(err));
+    // An aborted response fires 'aborted', not 'error'/'end'.
+    res.on('aborted', () => handlers.onError(new Error('aborted')));
   });
   req.on('error', (err) => handlers.onError(err));
+  // Electron's net.ClientRequest emits 'abort' (never 'error') after
+  // req.abort(); without this listener the per-file promise never settles
+  // and a cancelled download hangs with the progress bar up forever.
+  req.on('abort', () => handlers.onError(new Error('aborted')));
   req.end();
   return { abort: () => { try { req.abort(); } catch (e) { /* already done */ } } };
 }
@@ -146,6 +152,12 @@ export class ModelDownloader {
     this.logFn(`downloading ${plan.length} file(s) into ${this.modelsDir}`);
 
     for (let i = 0; i < plan.length; i += 1) {
+      // A cancel that lands between files (during verify/rename) has no
+      // request to abort — without this check the next multi-GB file would
+      // download in full before anything noticed the flag.
+      if (this._cancelled) {
+        return this._push({ state: 'cancelled', plan, planIndex: i }, true);
+      }
       const item = plan[i];
       try {
         await this._downloadOne(item, plan, i);
