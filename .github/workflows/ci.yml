@@ -232,9 +232,9 @@ jobs:
           if (-not $setup) { throw "eSigner CKA zip contained no installer exe" }
           New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
           Start-Process $setup.FullName -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
-          C:\esigner\eSignerCKA.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
-          C:\esigner\eSignerCKA.exe unload
-          C:\esigner\eSignerCKA.exe load
+          C:\esigner\eSignerCKATool.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
+          C:\esigner\eSignerCKATool.exe unload
+          C:\esigner\eSignerCKATool.exe load
           $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
           if (-not $cert) { throw "eSigner CKA loaded no code-signing cert" }
           echo "CADMIUM_WIN_SIGN_SHA1=$($cert.Thumbprint)" >> $env:GITHUB_ENV
