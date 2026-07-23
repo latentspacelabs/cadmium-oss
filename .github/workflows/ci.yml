@@ -226,12 +226,22 @@ jobs:
         run: |
           # Pinned GitHub release asset: the ssl.com landing-page URL serves
           # HTML, not the installer ("not a valid application for this OS").
-          Invoke-WebRequest -OutFile eSignerCKA.zip "https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.7/SSL.COM-eSigner-CKA_1.0.7.zip"
+          # v1.0.8 + the post-install sequence mirror SSLcom/esigner-sample.
+          Invoke-WebRequest -OutFile eSignerCKA.zip "https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.8/SSL.COM-eSigner-CKA_1.0.8.zip"
           Expand-Archive eSignerCKA.zip -DestinationPath eSignerCKA-setup -Force
           $setup = Get-ChildItem eSignerCKA-setup -Recurse -Filter *.exe | Select-Object -First 1
           if (-not $setup) { throw "eSigner CKA zip contained no installer exe" }
           New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
           Start-Process $setup.FullName -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
+          # Register the Key Storage Provider. Without RegisterKSP +
+          # eSignerCSP.Config the cert imports but its cloud-backed private
+          # key is invisible to signtool ("After Private Key filter, 0 certs
+          # were left").
+          foreach ($vc in @("C:\esigner\vc_redist.x86.exe", "C:\esigner\vc_redist.x64.exe")) {
+            if (Test-Path $vc) { Start-Process $vc -ArgumentList "/install","/q","/norestart" -Wait }
+          }
+          C:\esigner\RegisterKSP.exe | Out-Null
+          C:\esigner\eSignerCSP.Config.exe | Out-Null
           C:\esigner\eSignerCKATool.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
           C:\esigner\eSignerCKATool.exe unload
           C:\esigner\eSignerCKATool.exe load
@@ -254,6 +264,14 @@ jobs:
         working-directory: app
         shell: bash
         run: npm run electron:build -- --win --x64 --publish never
+      # KSP logs make eSigner failures diagnosable after the runner is gone.
+      - name: Upload eSigner KSP logs
+        if: ${{ always() && env.ES_USERNAME != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: esigner-ksp-logs
+          path: C:\Users\runneradmin\AppData\Roaming\eSignerCKA\KSP
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: cadmium-win-x64
