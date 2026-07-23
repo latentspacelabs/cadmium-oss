@@ -44,7 +44,8 @@ flowchart LR
 
 ## Model artifacts & execution providers
 
-The checkpoint (`gap_close_v1_1229.ckpt`) exports to ONNX
+The checkpoint (`gap_close_v1_1229.ckpt`, published as an asset of the
+`checkpoints-v1` GitHub release) exports to ONNX
 (`serving/onnx/export_gap_closer.py`). Measured results on the 12-drawing
 robot corpus:
 

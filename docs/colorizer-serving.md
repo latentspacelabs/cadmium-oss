@@ -71,7 +71,10 @@ flowchart TB
 
 ## ONNX export & the graph
 
-`serving/onnx/export_ant_v2.py` wraps the torch model for export:
+`serving/onnx/export_ant_v2.py` wraps the torch model for export (the
+checkpoint it loads — `v2-encoder-pretrained-large-tb-aug-7750`, the parity
+anchor — is published as `ant_v2_tb-aug-7750.tar.gz` on the `checkpoints-v1`
+GitHub release):
 
 - `torch_scatter.scatter(reduce='mean')` is replaced by a bit-identical
   native `scatter_add` + counts implementation (exports as

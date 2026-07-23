@@ -199,6 +199,16 @@ Release (the tag doesn't match `v*`, so it never triggers app builds):
   for `/segment` gap closing (same weights, pinned batch dim). Optional,
   macOS-only (`platform: 'darwin'`).
 
+**Torch checkpoints (`checkpoints-v1`)**: the training checkpoints behind
+those exports ship as a second hand-managed release (also never marked
+"Latest"): `ant_v2_tb-aug-7750.tar.gz` (`config.json` + `pytorch_model.bin`,
+optimizer state stripped — the parity anchor every export and golden-dump
+script loads) and `gap_close_v1_1229.ckpt` (byte-identical to the file that
+produced the shipped GapCloser ONNX). Training code is not in this repo;
+without these weights none of `serving/onnx/export_*.py`,
+`parity_corpus.py`, or the `dump_*_goldens.py` scripts can run. Both are
+pickle-based formats — load them only in a trusted environment.
+
 `app/src/util/model-manifest.js` is the single source of truth: names,
 byte sizes, sha256 hashes, release tag/URL. CommonJS on purpose so both
 webpack and node tooling load it. Bumping models = new tag + new hashes in
