@@ -7,7 +7,7 @@
 // that COLORIZE_STATUS is derived from (its real module pulls in axios/https/
 // Electron at import time).
 
-jest.mock('@/util/modal', () => ({
+jest.mock('@/util/server-client', () => ({
   MODAL_RESPONSES: {
     CANCELED: 'canceled',
     NO_INTERNET: 'no_internet',

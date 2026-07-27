@@ -45,7 +45,7 @@
 
 import { t } from '@/util/i18n';
 
-import { cancelModal } from '@/util/modal';
+import { cancelModal } from '@/util/server-client';
 
 import { mapGetters } from 'vuex';
 

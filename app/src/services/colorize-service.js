@@ -16,7 +16,7 @@
  * the plumbing.
  */
 import { colorizeOnServer, raaOnServer } from '@/util/colorization-via-server';
-import { MODAL_RESPONSES } from '@/util/modal';
+import { MODAL_RESPONSES } from '@/util/server-client';
 
 // Result status. OK means the payload fields are populated; anything else is a
 // terminal condition whose user-facing dialog (if any) the server layer has

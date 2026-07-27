@@ -6,7 +6,7 @@
 // untranslated keys (harmless at runtime — the i18n module sets
 // returnEmptyString: false, so '' falls back to English).
 //
-// keepRemoved is deliberate: dynamic keys (e.g. t(action) in util/modal.js,
+// keepRemoved is deliberate: dynamic keys (e.g. t(action) in util/server-client.js,
 // where action is 'colorizing' / 'preprocessing' / 'analyzing', and the text
 // props RoundButton passes through t()) are invisible to static extraction
 // and must survive a re-run. Don't hand-prune "unused" keys without checking.

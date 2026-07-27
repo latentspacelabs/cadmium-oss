@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { segmentationExecutablePath, cannyLineExecutablePath } from '@/binaries';
 import { defineTempDir, base64EncodeInBrowser, getRawDataFromDataUri } from '@/util/file-util';
-import { modalSegment, MODAL_RESPONSES } from '@/util/modal';
+import { modalSegment, MODAL_RESPONSES } from '@/util/server-client';
 import cv from '@techstark/opencv-js';
 
 import {
@@ -28,10 +28,12 @@ const spawn = require('await-spawn');
 
 /* eslint-disable import/prefer-default-export */
 export async function generateSegmentationMap({ projectId, srcFilename, srcPath, imageId, aiDilationSize, tbDilationSize, line_threshold, is_auto_alpha, minSegSize, canvSize }) {
-  // TODO: Create checksum and only calculate segmentation map when necessary
-  // Keep a map of all generated segmentation maps, then check if there already
-  // is a segmentation map for the image. Maybe this should happend before calling
-  // this function
+  // Caching lives at the callers, which is the right place: both
+  // ANALYZE_CURRENT_FRAME (store/actions.js) and ensureSegMap
+  // (services/colorize-run.js) build a content-addressed filename from the image
+  // hash + every analyze param (buildSegMapFileName) and skip this call entirely
+  // when that file already exists. So this only runs when the result would
+  // differ — no unconditional recompute.
   //
   // NOTE: plain async body on purpose — a throw here (e.g. the srcPath read
   // failing) must reject so callers get an error dialog. This used to be a

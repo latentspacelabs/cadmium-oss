@@ -1,5 +1,5 @@
 /* eslint-disable  */
-import { modalColorize, modalPreprocess, MODAL_RESPONSES } from '@/util/modal';
+import { modalColorize, modalPreprocess, MODAL_RESPONSES } from '@/util/server-client';
 
 /* eslint-disable import/prefer-default-export */
 export async function colorizeOnServer({
