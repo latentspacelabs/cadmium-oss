@@ -376,6 +376,20 @@ impl Engine {
             }
             None => GapEp::Cpu,
         };
+        // Bucket-only gap config: the accelerator plan forwards the batched
+        // bucket model, but its fallback (run_gap_cpu -> with_gap_session) needs
+        // the dynamic --gap-model. With only --gap-model-bucket, a failed
+        // CoreML/DirectML build leaves no gap model at all and gap-closing
+        // silently degrades to trapped-ball-only. The app always ships both, so
+        // this only bites a hand-rolled sidecar run — warn so it's diagnosable.
+        if gap_ep.is_accel() && gap_model_path.is_none() {
+            tracing::warn!(
+                gap_ep = Self::gap_ep_label(gap_ep),
+                "gap accelerator configured without a dynamic --gap-model; if the \
+                 accelerator build fails there is no CPU fallback and gap-closing \
+                 will be disabled (trapped-ball only)"
+            );
+        }
         tracing::info!(
             ant_ep = Self::ep_label(ant_ep),
             gap_ep = Self::gap_ep_label(gap_ep),
