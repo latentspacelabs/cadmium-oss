@@ -12,7 +12,6 @@ export const SET_FRAME_ORIGINAL = 'set_frame_original';
 export const SET_FRAMES_SELECTED = 'set_frames_selected';
 export const SET_FRAMES_SELECTED_ON_WHOLE_LAYER = 'set_frames_selected_on_whole_layer';
 export const SET_FRAMES_TO_LOADING = 'set_frames_to_loading';
-export const SET_TMP_IMAGE_ROOT_PATH = 'set_tmp_image_root_path'; // root directory for loading images, temporary, TODO: Delete
 export const DESELECT_FRAMES = 'deselect_frames';
 export const DESELECT_ALL_FRAMES_ON_LAYER = 'deselect_all_frames_on_layer';
 export const CREATE_PLAYER_INTERVAL = 'create_player_interval';

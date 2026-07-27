@@ -66,7 +66,6 @@ export default {
   // player states
   playerIsPlaying: false,
   playerFps: 24,
-  playerInterval: null, // TODO: Maybe this should not be reactive and moved outside Vuex...
   playerLoopEnabled: false,
   playerLoopIn: null,
   playerLoopOut: null,
@@ -160,7 +159,6 @@ export default {
   eraserCollapse: ['eraser'],
   referenceCollapse: ['reference', 'library'],
   segOptionsCollapse: ['segoptions'],
-  tmpImageRootPath: '',
   timelineScrollValueX: 0,
   activeLayerId: null,
   updateInProgress: false,

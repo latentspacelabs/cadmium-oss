@@ -25,7 +25,6 @@ const platformSpecificFfmpegBinPath = path.join(ffmpegStartPath, platform);
 const platformSpecificBinPath = path.join(binariesPath, platform);
 
 export const segmentationExecutableName = `cadmium-seg${platform === 'win' ? '.exe' : ''}`;
-export const serverExecutableName = `cadmium-server${platform === 'win' ? '.exe' : ''}`;
 export const ffmpegExecutableName = `ffmpeg${platform === 'win' ? '.exe' : ''}`;
 export const cannyLineExecutableName = `edgedetector${platform === 'win' ? '.exe' : ''}`;
 
@@ -54,8 +53,6 @@ switch (platform) {
     console.log('This computer type is unknown.');
 }
 export const cannyLineExecutablePath = `"${path.resolve(path.join(platformSpecificBinPath, 'canny', cannyLineExecutableName))}"`;
-export const serverExecutablePath = `"${path.resolve(path.join(platformSpecificBinPath, 'server', serverExecutableName))}"`;
-export const checkpointIndexPath = `"${path.resolve(path.join(binariesPath, 'savedmodel'))}"`;
 let ffmpegExecutablePathArch;
 switch (platform) {
   case 'mac':

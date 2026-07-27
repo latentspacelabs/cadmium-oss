@@ -127,7 +127,6 @@ import {
   SET_FRAME_SELECTED,
   SET_FRAMES_SELECTED,
   CREATE_EMPTY_FRAME_IF_NONE_EXISTS,
-  SET_TMP_IMAGE_ROOT_PATH,
   DESELECT_FRAMES,
   CREATE_PLAYER_INTERVAL,
   DESTROY_PLAYER_INTERVAL,
@@ -1139,10 +1138,6 @@ export default {
             commit(SET_CANVAS_SCALE, scale);
             // commit(SET_BACKGROUND_COLOR, color);
           }
-        }
-
-        if (file && file.path) {
-          commit(SET_TMP_IMAGE_ROOT_PATH, file.path);
         }
 
         if (layerType === LAYER_TYPE_COLOR) {

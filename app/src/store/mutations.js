@@ -14,7 +14,6 @@ import {
   SET_FRAMES_SELECTED,
   SET_FRAME_ORIGINAL,
   SET_FRAMES_TO_LOADING,
-  SET_TMP_IMAGE_ROOT_PATH,
   DESELECT_FRAMES,
   CREATE_PLAYER_INTERVAL,
   DESTROY_PLAYER_INTERVAL,
@@ -115,6 +114,13 @@ import triggerMenuRebuildWithColorizationState from '@/util/menu';
 /* eslint no-shadow: ["error", { "allow": ["state"] }] */
 // eslint-disable-next-line
 const state = defaultState();
+
+// The frame player's setInterval / requestAnimationFrame handle. Deliberately
+// NOT in Vuex state: CREATE_PLAYER_RAF reassigns it every animation frame during
+// playback, so a reactive write per frame would thrash Vue's dependency
+// tracking, and a timer handle is meaningless to persist into a .cdm. Nothing
+// reads it reactively — only the player mutations below touch it.
+let playerHandle = null;
 
 /**
  * Helper function to generate an empty frame
@@ -445,23 +451,6 @@ export default {
     });
   },
 
-  // TODO: Remove from code-base, not needed any more when segmentation & colorization are working.
-  [SET_TMP_IMAGE_ROOT_PATH](state, imagePath) {
-    // TODO: Check if it is image
-    // extract path
-    let lastSeparator = imagePath.lastIndexOf('/');
-    if (lastSeparator === -1) {
-      lastSeparator = imagePath.lastIndexOf('\\'); // windows
-    }
-    let path = imagePath.substring(0, lastSeparator);
-    lastSeparator = path.lastIndexOf('/');
-    if (lastSeparator === -1) {
-      lastSeparator = imagePath.lastIndexOf('\\'); // windows
-    }
-    path = path.substring(0, lastSeparator);
-    state.tmpImageRootPath = path;
-  },
-
   [DESELECT_FRAMES](state, { layerId, frameNrs }) {
     if (!layerId || !frameNrs || !Array.isArray(frameNrs)) {
       console.error(`Bad arguments: layerId: ${layerId}, frameNrs: ${frameNrs}`);
@@ -479,7 +468,7 @@ export default {
 
   [CREATE_PLAYER_INTERVAL](state, fps) {
     if (!fps) { console.error(CREATE_PLAYER_INTERVAL, ': fps cannot be 0'); return; }
-    state.playerInterval = setInterval(() => {
+    playerHandle = setInterval(() => {
       state.selectedFrame += 1;
       // if (state.selectedFrame >= state.timelineFrames) {
       //   state.selectedFrame = 1; // set back to first frame
@@ -496,8 +485,8 @@ export default {
   },
 
   [DESTROY_PLAYER_INTERVAL](state) {
-    if (!state.playerInterval) { return; }
-    clearInterval(state.playerInterval);
+    if (!playerHandle) { return; }
+    clearInterval(playerHandle);
     state.playerIsPlaying = false;
   },
 
@@ -534,16 +523,16 @@ export default {
         }
         lastTimestamp += framesToAdvance * frameDurationMs;
       }
-      state.playerInterval = window.requestAnimationFrame(step);
+      playerHandle = window.requestAnimationFrame(step);
     };
     state.playerIsPlaying = true;
-    state.playerInterval = window.requestAnimationFrame(step);
+    playerHandle = window.requestAnimationFrame(step);
   },
 
   [DESTROY_PLAYER_RAF](state) {
-    if (!state.playerInterval) { return; }
-    window.cancelAnimationFrame(state.playerInterval);
-    state.playerInterval = null;
+    if (!playerHandle) { return; }
+    window.cancelAnimationFrame(playerHandle);
+    playerHandle = null;
     state.playerIsPlaying = false;
   },
 
