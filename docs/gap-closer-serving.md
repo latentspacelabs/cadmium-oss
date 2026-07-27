@@ -99,6 +99,14 @@ replicated exactly (gated by the recorded HTTP goldens).
   collide. Preserved as-is.
 - On Windows/WDDM boxes, system RAM pressure (e.g. Windows Update) can fail
   DML allocations that normally succeed — reboot the rig before benching.
+- **The DirectML EP needs a modern `DirectML.dll` shipped next to the sidecar
+  exe.** Windows' system copy (1.4.0 on the Server 2022 image) is too old and
+  fails session creation with `887A0004` (`DXGI_ERROR_UNSUPPORTED`), so the
+  sidecar silently falls back to CPU — `/health` shows `segment.active = "cpu"`
+  with that reason. Packaging ships Microsoft's redistributable (fetched by
+  `scripts/fetch-directml.ps1`); the exe dir is searched before System32. This
+  was invisible to unit tests, the Windows compile, and Python-ORT parity — only
+  the on-hardware `/health` check on the rig caught it.
 
 ## Open work
 

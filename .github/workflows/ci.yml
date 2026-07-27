@@ -191,6 +191,13 @@ jobs:
       - name: Build sidecar (release, x64 MSVC)
         working-directory: serving/sidecar
         run: cargo build --release --bin cadmium-sidecar --target x86_64-pc-windows-msvc
+      # The DML EP dlopens DirectML.dll at runtime; the system one (1.4.0 on the
+      # Server 2022 image) is too old and fails session creation, dropping the
+      # sidecar to CPU. Ship Microsoft's modern redist next to the sidecar exe.
+      - name: Fetch DirectML runtime (DML EP)
+        working-directory: serving/sidecar
+        shell: powershell
+        run: ./scripts/fetch-directml.ps1
       - uses: actions/setup-node@v4
         with:
           node-version: 20

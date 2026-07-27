@@ -175,11 +175,18 @@ Closed since this file was created — listed so they aren't re-filed:
   `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity vs the fp32
   anchor: 10 flips / 10.5 M px (CPU proxy), 18 flips on the actual DirectML EP
   on a T4 — both ~99.9998%. Standalone DML bench on the T4: batch-24 ~0.7 s vs
-  the 4-vCPU CPU path's multi-second gap close. CI (push 2026-07-27) has since
-  compiled the `cfg(windows)` DirectML path and passed the win-gated
-  `accel_report_windows_gap_dml_selection` test + packaged the win installer;
-  the remaining sidecar-level `/health segment=dml` integration e2e folds into
-  the v1.5.7 Windows shakedown.
+  the 4-vCPU CPU path's multi-second gap close. CI (push 2026-07-27) compiled
+  the `cfg(windows)` DirectML path + passed the win-gated
+  `accel_report_windows_gap_dml_selection` test + packaged the win installer.
+  **The `/health segment=dml` integration test on the T4 rig then caught that
+  the shipped sidecar fell back to CPU (`887A0004`): it ships no `DirectML.dll`
+  and loaded the system 1.4.0 (Server 2022, too old).** Fix implemented
+  (2026-07-27): packaging ships DirectML 1.15.4 next to the exe
+  (`scripts/fetch-directml.ps1` + win `extraResources` + CI step); bundling that
+  DLL on the rig flipped `segment.active` cpu→dml (and colorize too).
+  **Closing step:** re-push → CI rebuild →
+  one more rig `/health` check on the packaged DLL, folded into the v1.5.7
+  Windows shakedown.
 - **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
   pyproject/package.json declarations synced) — 2026-07-22.
 - **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,

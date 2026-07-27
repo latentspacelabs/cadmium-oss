@@ -133,6 +133,17 @@ module.exports = {
               from: '../serving/sidecar/target/x86_64-pc-windows-msvc/release/cadmium-sidecar.exe',
               to: 'sidecar/cadmium-sidecar.exe',
             },
+            {
+              // DirectML runtime the sidecar loads for the DML EP. Windows'
+              // system DirectML.dll (1.4.0 on Server 2022, 2020) is too old and
+              // fails session creation for our fp16/tiled models (887A0004),
+              // silently dropping colorize + gap to CPU. Ship Microsoft's modern
+              // redistributable next to the sidecar exe — the exe's own dir is
+              // searched before System32, so it wins. Fetched by
+              // serving/sidecar/scripts/fetch-directml.ps1.
+              from: '../serving/sidecar/vendor/DirectML.dll',
+              to: 'sidecar/DirectML.dll',
+            },
           ],
           // Windows signing goes through SSL.com eSigner CKA: the cert never
           // leaves SSL.com's HSM; CKA exposes it in the machine's cert store

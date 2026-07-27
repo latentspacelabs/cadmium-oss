@@ -45,8 +45,10 @@ vtracer = { path = "../../third_party/vtracer/cmdapp" }
 # static ORT 1.24.2, but ORT >= 1.25 runs CoreML conv graphs ~3x faster, so
 # the sidecar dlopens Microsoft's official dylib instead (fetched by
 # scripts/fetch-ort-dylib.sh, located at runtime by src/ort_dylib.rs).
-# Windows keeps the static pyke binary (ships DirectML; 1.24 DML perf is the
-# validated baseline there).
+# Windows keeps the static pyke binary (compiles in the DirectML EP; 1.24 DML
+# perf is the validated baseline there). The DML EP dlopens DirectML.dll at
+# runtime, and Windows' system copy is too old (1.4.0), so packaging ships a
+# modern redist next to the exe (scripts/fetch-directml.ps1).
 [target.'cfg(target_os = "macos")'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["coreml", "load-dynamic"] }
 

@@ -21,7 +21,13 @@ copied into the app bundle by electron-builder:
   honors `ORT_DYLIB_PATH`). For dev runs of the sidecar/verify bins, copy it
   to `serving/sidecar/target/release/` too.
 - win: `resources/sidecar/cadmium-sidecar.exe` (x64 MSVC; statically links
-  the pyke ORT 1.24 binary with DirectML — no dylib involved)
+  the pyke ORT 1.24 binary with the DirectML EP) **plus
+  `sidecar/DirectML.dll`** — the DML EP dlopens DirectML.dll at runtime, and
+  Windows' system copy (1.4.0 on Server 2022) is too old to create our
+  fp16/tiled sessions (fails 887A0004 → silent CPU fallback), so a modern
+  redistributable is shipped next to the exe (the exe dir is searched before
+  System32). Fetch it with `serving/sidecar/scripts/fetch-directml.ps1` (into
+  `serving/sidecar/vendor/`, gitignored) before `electron:build`.
 
 That location is a contract with `app/src/util/sidecar-core.js`
 (`resolveSidecarPaths()` reads `process.resourcesPath + '/sidecar/...'` in
