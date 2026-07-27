@@ -246,6 +246,46 @@ pub fn pad_feed_to_bucket(feed: &AntFeed, b: &Bucket) -> Result<AntFeed, String>
 mod tests {
     use super::*;
 
+    /// The Python export/parity pipeline keeps its own copy of these dims
+    /// (`serving/onnx/parity_corpus.py::CORPUS_BUCKET`). A silent drift between
+    /// the two breaks bucket parity but compiles clean, and nothing else in CI
+    /// catches it (the golden harnesses that would are out-of-CI). Pin them
+    /// together here — this runs in the existing `cargo test`. `include_str!`
+    /// also makes the Python file a compile dependency, so moving it breaks the
+    /// build loudly rather than letting the guard rot.
+    #[test]
+    fn corpus_bucket_matches_python_parity_source() {
+        let py = include_str!("../../../onnx/parity_corpus.py");
+        // Isolate the `CORPUS_BUCKET = { ... }` dict literal, then read each int
+        // so an unrelated `"slots":` elsewhere in the file can't be picked up.
+        let dict = py
+            .split_once("CORPUS_BUCKET = {")
+            .expect("parity_corpus.py: CORPUS_BUCKET assignment not found")
+            .1
+            .split_once('}')
+            .expect("parity_corpus.py: CORPUS_BUCKET literal not closed")
+            .0;
+        let field = |name: &str| -> usize {
+            let needle = format!("\"{name}\":");
+            let after = dict
+                .split_once(&needle)
+                .unwrap_or_else(|| panic!("parity_corpus.py CORPUS_BUCKET: `{needle}` missing"))
+                .1
+                .trim_start();
+            after
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()
+                .unwrap_or_else(|_| panic!("parity_corpus.py CORPUS_BUCKET: no int after `{needle}`"))
+        };
+        assert_eq!(CORPUS_BUCKET.slots, field("slots"), "slots drifted from parity_corpus.py");
+        assert_eq!(CORPUS_BUCKET.rows, field("rows"), "rows drifted from parity_corpus.py");
+        assert_eq!(CORPUS_BUCKET.cmds, field("cmds"), "cmds drifted from parity_corpus.py");
+        assert_eq!(CORPUS_BUCKET.flat, field("flat"), "flat drifted from parity_corpus.py");
+        assert_eq!(CORPUS_BUCKET.length, field("length"), "length drifted from parity_corpus.py");
+    }
+
     fn tiny_bucket() -> Bucket {
         Bucket {
             slots: 4,

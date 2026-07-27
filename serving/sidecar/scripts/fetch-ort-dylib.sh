@@ -19,6 +19,14 @@ cd "$(dirname "$0")/.."
 mkdir -p vendor
 DYLIB="vendor/libonnxruntime.${ORT_VERSION}.dylib"
 
+# Keep vendor/ holding only the current version. Packaging globs
+# libonnxruntime.*.dylib (app/vue.config.js) so the version lives in exactly one
+# place — this script — and the runtime picks the lexicographically-greatest
+# match (src/ort_dylib.rs); a stale sibling from a previous bump would be shipped
+# and could be mis-selected. Prune before the up-to-date short-circuit so it runs
+# even when the current dylib is already present.
+find vendor -maxdepth 1 -name 'libonnxruntime.*.dylib' ! -name "$(basename "$DYLIB")" -delete
+
 if [ -f "$DYLIB" ] && echo "$SHA256  $DYLIB" | shasum -a 256 -c - >/dev/null 2>&1; then
   echo "$DYLIB already present and verified"
   exit 0

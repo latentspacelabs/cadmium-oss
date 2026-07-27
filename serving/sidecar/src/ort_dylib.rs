@@ -6,8 +6,8 @@
 //! official dylib instead of linking pyke's static binary.
 //!
 //! Search order:
-//!   1. `ORT_DYLIB_PATH` env var (the `ort` crate's own convention — set by
-//!      the Electron sidecar-manager in packaged builds, or by hand);
+//!   1. `ORT_DYLIB_PATH` env var (the `ort` crate's own convention) if set —
+//!      an escape hatch for hand-rolled runs; nothing in Cadmium sets it;
 //!   2. `libonnxruntime.*.dylib` next to the current executable (dev builds:
 //!      `scripts/fetch-ort-dylib.sh` + a copy into target/release; packaged
 //!      builds: extraResources lands it next to the sidecar binary).
@@ -20,8 +20,9 @@
 /// session is built. No-op on non-macOS targets (they link statically).
 #[cfg(target_os = "macos")]
 pub fn init() -> Result<(), String> {
-    // An externally-set ORT_DYLIB_PATH (the sidecar-manager sets it in packaged
-    // builds) wins — hand it straight to ort. This is a read, never a set: we
+    // An externally-set ORT_DYLIB_PATH wins — hand it straight to ort. Nothing
+    // in Cadmium sets it (packaged builds rely on the sibling-glob below); it is
+    // an escape hatch for hand-rolled runs. This is a read, never a set: we
     // don't mutate the environment (unsound once tokio's worker threads exist).
     if let Some(path) = std::env::var_os("ORT_DYLIB_PATH")
         .filter(|v| !v.is_empty())

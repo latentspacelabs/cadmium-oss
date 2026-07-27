@@ -108,11 +108,15 @@ module.exports = {
             {
               // ONNX Runtime dylib the sidecar dlopens (ort load-dynamic):
               // the ort crate's static binary is 1.24 but ORT >= 1.25 runs
-              // CoreML ~3x faster. Fetched by
-              // serving/sidecar/scripts/fetch-ort-dylib.sh; the sidecar looks
-              // for libonnxruntime*.dylib next to its own binary.
-              from: '../serving/sidecar/vendor/libonnxruntime.1.27.0.dylib',
-              to: 'sidecar/libonnxruntime.1.27.0.dylib',
+              // CoreML ~3x faster. Fetched into serving/sidecar/vendor/ by
+              // scripts/fetch-ort-dylib.sh, which keeps only the current
+              // version there. Glob it (rather than naming the version) so the
+              // ORT version lives in exactly one place — that script. The
+              // sidecar finds libonnxruntime*.dylib next to its own binary at
+              // runtime (src/ort_dylib.rs), so the exact filename is unimportant.
+              from: '../serving/sidecar/vendor',
+              to: 'sidecar',
+              filter: ['libonnxruntime.*.dylib'],
             },
           ],
           // Ad-hoc-signed local builds (no Developer ID cert in the env)

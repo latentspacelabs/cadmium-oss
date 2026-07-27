@@ -37,10 +37,6 @@ Remaining from the design:
 
 ## app (Electron / Vue renderer + main)
 
-### P1 — correctness
-_All clear (2026-07-27 sweep). The five items that were here are resolved or
-were misdiagnosed — see "Recently resolved"._
-
 ### P2 — performance
 - Segmentation map recomputed unconditionally; add a checksum cache. → [util/segmentation.js:32](../app/src/util/segmentation.js#L32)
 - RadialGradient re-created every render loop; build once and re-use. → [components/MainPane.vue:1165](../app/src/components/MainPane.vue#L1165)
@@ -63,39 +59,7 @@ were misdiagnosed — see "Recently resolved"._
 
 ---
 
-## colorize (inference-only model package)
-
-### P1 — correctness / model-parity
-_Blocked on the training + eval repo (cadmium-vision), not code-fixable in this
-inference-only package: each item changes a model input (padding, pad value,
-quantization, resize interpolation), so "fixing" it without an empirical parity
-re-run against the trained weights would silently break colorization quality.
-Carry them until that harness is available._
-- vtracer in serving does not support padding (Python↔serving parity gap). → [vectorization/vtrace.py:32](../colorize/vectorization/vtrace.py#L32)
-- AnT v2 pad value for the packed output tensor is unverified. → [ant_v2/model_ant_v2.py:336](../colorize/ant_v2/model_ant_v2.py#L336)
-- Quantization questions: remove line pixels before quantizing? quantize the ref frame too? → [common/sequence.py:305](../colorize/common/sequence.py#L305), [common/sequence.py:491](../colorize/common/sequence.py#L491)
-- Resize should possibly be bilinear for line/color (currently nearest). → [common/image.py:97](../colorize/common/image.py#L97)
-
-### P3 — cleanup / architecture questions
-- `to_dense_batch` instead of the manual batch build. → [common/ops.py:178](../colorize/common/ops.py#L178)
-- SVG-encoder / SuperGlue architecture questions (siamese vs separate; aggregation). → [nn/superglue.py:97](../colorize/nn/superglue.py#L97), [nn/svg_encoder.py:104](../colorize/nn/svg_encoder.py#L104)
-- Preserve small segments in `prepare_image`? → [common/image.py:55](../colorize/common/image.py#L55)
-- SVG-path uniqueness / normalized-case handling. → [vectorization/lib/svg_path.py:127](../colorize/vectorization/lib/svg_path.py#L127), [vectorization/lib/svg.py:144](../colorize/vectorization/lib/svg.py#L144)
-
----
-
 ## segmentation (classical trapped-ball + GapCloser inference)
-
-### P1 — correctness
-- `> 256`-segment tile overflows the `tile_id × 256` label offset in
-  `compute_seg` (a >256-segment tile collides with the next tile's range).
-  **Parity-locked, not a standalone fix:** the Rust sidecar replicates this
-  offset exactly and the HTTP goldens pin it, so changing Python alone would
-  break parity (see the label-offset gotcha in
-  [gap-closer-serving.md](gap-closer-serving.md)). Defended upstream in the app —
-  the whole drawing is rejected at 255 segments (`MAX_SEGMENTS`), so a tile can't
-  legitimately reach 256 through the shipped path. Fix both sides + re-record
-  goldens together, or retire it when the Python path becomes reference-only. → [trapped_ball/parallel.py:19](../segmentation/trapped_ball/parallel.py#L19)
 
 ### P3 — cleanup
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
@@ -109,42 +73,25 @@ Carry them until that harness is available._
 No inline markers in the Rust/Python serving source. The items below are open
 code-review findings (deferred) plus the doc roadmap.
 
-### P2 — performance / resource
-- **Segment gap path holds all tiles + all UDF planes in memory at once**
-  (~2 MB/tile → ~650 MB transient for a ~256-tile 4K drawing) instead of
-  streaming per-tile as the old path did. The fix is entangled with the CoreML
-  batch-of-24 forward, so it's a refactor, not a one-liner. → [src/serve/segment_impl.rs:106](../serving/sidecar/src/serve/segment_impl.rs#L106)
-- ~~**Gap-closer onto the DirectML GPU EP.**~~ **Done (v1.5.7).** `GapEp::Dml`
-  runs the fp16 export on DirectML (Windows), sharing the batched forward with
-  the CoreML path. fp16 boundary parity: 10 flips / 10.5 M px vs the fp32
-  anchor (`verify_gap_fp16.py`). Model published to `models-v1`; profile
-  `segment: 'dml'`. See "Recently resolved".
-
 ### P3 — cleanup / robustness
-- **Gap bucket artifact carries no `CACHE_KEY` metadata**, so a weight-only
-  update to `gap_closer_fp32_bucket.onnx` won't invalidate the CoreML model
-  cache (the AnT bucket is stamped; the gap bucket is not). Also: nothing prunes
-  the ~4.4 GB CoreML cache. Do both at the next `models-v1` re-export. → [src/serve/engine.rs](../serving/sidecar/src/serve/engine.rs)
-- **Bucket-only gap config has no CPU fallback.** If only `--gap-model-bucket`
-  is supplied (no dynamic `--gap-model`) and the CoreML build fails, the CPU
-  fallback finds no dynamic model and silently degrades to trapped-ball-only.
-  The app always ships both models, so this is a misconfig edge — add a startup
-  warning when `GapEp::CoreMl` is resolved without a dynamic gap model. → [src/serve/engine.rs](../serving/sidecar/src/serve/engine.rs)
-- **`CORPUS_BUCKET` dims (256/64/256/8192/512) are hand-synced in four places**
-  — [src/tokenize/bucket.rs](../serving/sidecar/src/tokenize/bucket.rs), `serving/onnx/parity_corpus.py`,
-  the `model-manifest.js` comment, and the serving docs. A drift would break
-  parity silently. Consider a single generated source of truth.
-- **ORT dylib version `1.27.0` is triplicated** across
-  `serving/sidecar/scripts/fetch-ort-dylib.sh`, `app/vue.config.js`
-  (extraResources), and `.github/workflows/ci.yml`. Centralize the version so a
-  bump touches one place.
-
-### P4 — future
-- `compute_seg_partial` (incremental re-seg of edited tiles) exists in Python
-  but has no Rust port / serving route — decide if wanted.
-- fp16 AnT evaluation (halves the download; needs the ScatterElements
-  block-list export path re-validated end-to-end).
-- Modal backend client wiring (per-op URLs + auth) remains unbuilt.
+- **Gap bucket artifact carries no `CACHE_KEY` metadata + no CoreML-cache
+  prune** — both genuinely gated on the next `models-v1` re-export, not
+  code-fixable here now:
+  - *CACHE_KEY stamp:* `CACHE_KEY` is a `metadata_props` entry baked into the
+    `.onnx` bytes (ORT's CoreML EP reads it; the sidecar only sets
+    `ModelCacheDirectory`). Stamping the gap bucket means re-exporting +
+    republishing the asset and bumping its `sha256`/`bytes` in
+    `model-manifest.js`. Already functionally mitigated: a weight-only republish
+    changes the model sha → `manifestHash` changes → `wipeCoremlCache()` on the
+    next launch, so no stale-cache correctness bug — CACHE_KEY would only make
+    the invalidation *surgical* (recompile just the gap bucket, skip the ~107 s
+    AnT rebuild) instead of the current full wipe.
+  - *Cache prune:* the sidecar never sees ORT's per-model cache subdir names, so
+    the only pure-Rust prune is recency-based — which can evict a still-valid
+    subdir (a cache-hit reload may not bump mtime) and force a spurious ~107 s
+    recompile, worse than the disk it frees. The full `wipeCoremlCache()` on
+    manifest change already bounds growth. Do a *surgical* prune together with
+    CACHE_KEY at the re-export (then subdir identity is known). → [src/serve/engine.rs](../serving/sidecar/src/serve/engine.rs)
 
 ---
 
@@ -152,6 +99,26 @@ code-review findings (deferred) plus the doc roadmap.
 
 Closed since this file was created — listed so they aren't re-filed:
 
+- **serving/sidecar cleanup sweep** — 2026-07-27. Three of the four P3 items:
+  - *Bucket-only gap config had no CPU fallback:* `Engine::new` now warns at
+    startup when the gap EP is an accelerator (CoreML/DirectML) but no dynamic
+    `--gap-model` is configured — a failed accelerator build would otherwise
+    silently drop gap-closing to trapped-ball-only with no signal.
+  - *`CORPUS_BUCKET` dims duplicated:* added a `cargo test`
+    (`bucket.rs::corpus_bucket_matches_python_parity_source`) that `include_str!`s
+    `parity_corpus.py` and asserts the five dims match the Rust const — the one
+    guard that actually catches Rust↔Python drift (the golden harnesses that
+    would are out-of-CI). The `model-manifest.js` comment (which had already
+    dropped `cmds`) and `colorizer-serving.md` now point at the const instead of
+    restating numbers.
+  - *ORT dylib version `1.27.0` duplicated:* it lived in `fetch-ort-dylib.sh`,
+    `vue.config.js`, and `build-and-release.md` (ci.yml only calls the script;
+    Windows ships no dylib — the crate statically links pyke 1.24). `vue.config.js`
+    now globs `libonnxruntime.*.dylib` from `vendor/` (runtime finds it by the
+    same glob, so the filename is irrelevant), and the fetch script prunes stale
+    dylibs so exactly one ships. A bump now touches only `fetch-ort-dylib.sh`.
+    Also corrected the `ort_dylib.rs` doc that wrongly claimed the app sets
+    `ORT_DYLIB_PATH` (nothing does; packaged builds use the sibling glob).
 - **app P1 sweep** — 2026-07-27. Cleared the five app P1 items:
   - *Out-of-bounds layer index* (`getters.js`): both sites were already guarded
     by `if (!layer)` (an OOB index returns `undefined`) — removed the stale

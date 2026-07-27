@@ -12,7 +12,7 @@ A packaged Cadmium is the Electron app plus one extra ingredient: the
 copied into the app bundle by electron-builder:
 
 - mac: `Cadmium.app/Contents/Resources/sidecar/cadmium-sidecar` (arm64),
-  plus `sidecar/libonnxruntime.1.27.0.dylib` — the mac sidecar is built with
+  plus `sidecar/libonnxruntime.<version>.dylib` — the mac sidecar is built with
   `ort`'s `load-dynamic` feature and dlopens Microsoft's official ORT dylib
   (the crate's static binary is 1.24; ORT >= 1.25 runs CoreML conv graphs
   ~3x faster). Fetch it with `serving/sidecar/scripts/fetch-ort-dylib.sh`
