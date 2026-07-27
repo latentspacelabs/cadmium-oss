@@ -19,34 +19,13 @@ it points at.
 
 ---
 
-## Release / cross-cutting
-
-- **P1 — Rotate two leaked credentials.** A Comet API key and an Apple
-  app-specific password were committed in history and must be rotated at the
-  provider, then scrubbed. Tracked out-of-band; see the maintainer's notes.
-- **P2 — Windows e2e shakedown on real hardware.** Install and run the CI-built
-  `Cadmium.Setup.exe` on a real DirectX-12 machine: DirectML tiled-scatter AnT
-  path, fp16 GapCloser 0-flip boundary check (only fp32/CPU has it today —
-  prerequisite for shipping fp16 as the Windows default), and one real
-  eSigner-CKA signed-build validation. (Mac side is validated: signed+notarized
-  v1.5.4 installed and serving via CoreML.)
-- **P2 — Model-bootstrap end-to-end test on a fresh machine.** The downloader
-  is unit-tested and the `models-v1` release exists, but a clean-machine
-  install→download→colorize pass hasn't been run; anonymous download URLs also
-  need the repo public. **Resume support for interrupted GB-scale downloads is
-  a known gap** (a failed file refetches whole).
-- **P2 — Verify goldens in CI.** The `verify_*` bins + a Windows CPU
-  `parity_replay` need a durable home for the multi-GB golden dirs (a
-  dedicated release tag like the models, or S3); until then CI runs only
-  `cargo test` + jest. EP runtime checks (CoreML/DirectML) additionally need
-  real hardware — GitHub runners are CPU-only.
-
 ### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
 
 All five phases shipped 2026-07-22: explicit acceleration status in `/health`
 + Server Settings; Serving Profile (roles, resilient downloads,
 `missingAccel`); setup ledger + reconciler + GitHub auto-update feed + NSIS
-uninstall wipe; the nav-bar acceleration chip; reset button + orphan
+uninstall wipe; the nav-bar Server Settings button (acceleration status lives
+in the Settings modal's per-capability rows); reset button + orphan
 quarantine + cache wipe on manifest change + memoized sha-verify-on-reuse.
 Remaining from the design:
 
@@ -59,11 +38,8 @@ Remaining from the design:
 ## app (Electron / Vue renderer + main)
 
 ### P1 — correctness
-- Possible out-of-bounds layer index. → [store/getters.js:140](../app/src/store/getters.js#L140), [store/getters.js:158](../app/src/store/getters.js#L158)
-- Missing validation when color images are added before line images. → [store/actions.js:1144](../app/src/store/actions.js#L1144)
-- Color-import analyze with >255 segments: `generateSegmentationMap` skips writing the seg file but still returns its path, so `analyzeRef` gets `'noFile'` as the segmap and fails with a generic server error instead of the existing "too many segments" message. Surface `numSegments` from `ANALYZE_CURRENT_FRAME` and bail with the proper dialog. → [util/segmentation.js](../app/src/util/segmentation.js), [store/actions.js](../app/src/store/actions.js)
-- `loadcdm` backfill defaults disagree with `state.js` defaults for legacy files: `maxAiDilationSize` 30 vs 8, `maxTbDilationSize` 30 vs 1, `minSegSize` 1 vs 10 ([undo-redo-plugin.js:511](../app/src/store/undo-redo-plugin.js#L511) vs [state.js:115](../app/src/store/state.js#L115)); and `if (!newState.autoAlpha)` turns an absent field into `false` while a fresh app defaults `true`.
-- `validateFrameNumber` accepts up to 1000 while the user-facing copy says 999. → [services/import-plan.js](../app/src/services/import-plan.js)
+_All clear (2026-07-27 sweep). The five items that were here are resolved or
+were misdiagnosed — see "Recently resolved"._
 
 ### P2 — performance
 - Segmentation map recomputed unconditionally; add a checksum cache. → [util/segmentation.js:32](../app/src/util/segmentation.js#L32)
@@ -90,6 +66,11 @@ Remaining from the design:
 ## colorize (inference-only model package)
 
 ### P1 — correctness / model-parity
+_Blocked on the training + eval repo (cadmium-vision), not code-fixable in this
+inference-only package: each item changes a model input (padding, pad value,
+quantization, resize interpolation), so "fixing" it without an empirical parity
+re-run against the trained weights would silently break colorization quality.
+Carry them until that harness is available._
 - vtracer in serving does not support padding (Python↔serving parity gap). → [vectorization/vtrace.py:32](../colorize/vectorization/vtrace.py#L32)
 - AnT v2 pad value for the packed output tensor is unverified. → [ant_v2/model_ant_v2.py:336](../colorize/ant_v2/model_ant_v2.py#L336)
 - Quantization questions: remove line pixels before quantizing? quantize the ref frame too? → [common/sequence.py:305](../colorize/common/sequence.py#L305), [common/sequence.py:491](../colorize/common/sequence.py#L491)
@@ -106,7 +87,15 @@ Remaining from the design:
 ## segmentation (classical trapped-ball + GapCloser inference)
 
 ### P1 — correctness
-- Check for `> 256` segments in `compute_seg` (potential label overflow). → [trapped_ball/parallel.py:19](../segmentation/trapped_ball/parallel.py#L19)
+- `> 256`-segment tile overflows the `tile_id × 256` label offset in
+  `compute_seg` (a >256-segment tile collides with the next tile's range).
+  **Parity-locked, not a standalone fix:** the Rust sidecar replicates this
+  offset exactly and the HTTP goldens pin it, so changing Python alone would
+  break parity (see the label-offset gotcha in
+  [gap-closer-serving.md](gap-closer-serving.md)). Defended upstream in the app —
+  the whole drawing is rejected at 255 segments (`MAX_SEGMENTS`), so a tile can't
+  legitimately reach 256 through the shipped path. Fix both sides + re-record
+  goldens together, or retire it when the Python path becomes reference-only. → [trapped_ball/parallel.py:19](../segmentation/trapped_ball/parallel.py#L19)
 
 ### P3 — cleanup
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
@@ -163,6 +152,25 @@ code-review findings (deferred) plus the doc roadmap.
 
 Closed since this file was created — listed so they aren't re-filed:
 
+- **app P1 sweep** — 2026-07-27. Cleared the five app P1 items:
+  - *Out-of-bounds layer index* (`getters.js`): both sites were already guarded
+    by `if (!layer)` (an OOB index returns `undefined`) — removed the stale
+    `// TODO: … out of bounds` comments; no behavior change.
+  - *Missing color-before-line validation*: already implemented —
+    `ANALYZE_CURRENT_FRAME`'s import path warns via `colorImportedFirst()` and
+    aborts on decline. Was misfiled as open.
+  - *>255-segment analyze returns a phantom segmap path*: `ANALYZE_CURRENT_FRAME`
+    now reads `numSegments` from `generateSegmentationMap` and bails with the
+    shared `TOO_MANY_SEGMENTS` dialog (as COLORIZE does) instead of handing
+    `analyzeRef` a file that was never written.
+  - *`loadcdm` backfill defaults drifted from `state.js`* (30/30/1 vs 8/1/10;
+    `autoAlpha` absent→false vs default true): the backfill now reads the fresh
+    defaults straight from `state.js` (single source of truth, so it can't drift
+    again) and only overrides `autoAlpha` when it isn't already a boolean, so an
+    explicit `false` survives.
+  - *`validateFrameNumber` 1000 vs "999"*: not a bug — frame numbers are
+    filename+1, so the `> 1000` bound accepts filenames up to 999, matching the
+    copy. Left as-is (already documented in the file's header).
 - **DirectML gap-closer (Windows GPU gap closing)** — 2026-07-27. Diagnosed
   from a field report ("gap closer in CPU mode on Windows"): the sidecar's
   `GapEp` had no DirectML variant, so Windows gap closing was CPU-only on
@@ -172,9 +180,11 @@ Closed since this file was created — listed so they aren't re-filed:
   `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity vs the fp32
   anchor: 10 flips / 10.5 M px (CPU proxy), 18 flips on the actual DirectML EP
   on a T4 — both ~99.9998%. Standalone DML bench on the T4: batch-24 ~0.7 s vs
-  the 4-vCPU CPU path's multi-second gap close (the sidecar-level
-  `/health segment=dml` integration e2e folds into the v1.5.7 Windows
-  shakedown, where CI builds the sidecar carrying this change).
+  the 4-vCPU CPU path's multi-second gap close. CI (push 2026-07-27) has since
+  compiled the `cfg(windows)` DirectML path and passed the win-gated
+  `accel_report_windows_gap_dml_selection` test + packaged the win installer;
+  the remaining sidecar-level `/health segment=dml` integration e2e folds into
+  the v1.5.7 Windows shakedown.
 - **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
   pyproject/package.json declarations synced) — 2026-07-22.
 - **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,

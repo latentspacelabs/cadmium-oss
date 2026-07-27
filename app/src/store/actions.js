@@ -1452,6 +1452,7 @@ export default {
     const isAutoAlpha = getters[IS_AUTO_ALPHA];
     const canvSize = getters[CANVAS_SIZE];
     let canceled;
+    let numSegments;
 
     commit(SET_FRAME_SELECTED, {
       layerId: colorLayerId,
@@ -1572,7 +1573,9 @@ export default {
           console.log('canny line image data obj: ', lineDataObj);
         }
 
-        ({ path: segMapPath, processingTimeInSec, canceled } = await generateSegmentationMap({
+        ({
+          path: segMapPath, processingTimeInSec, canceled, numSegments,
+        } = await generateSegmentationMap({
           projectId: getters[PROJECT_ID],
           srcFilename: tmpTargetFileName,
           srcPath: tmpTargetFilePath,
@@ -1626,6 +1629,16 @@ export default {
           commit(SET_CANVAS_REDRAW_TRIGGER);
         }
         commit(SET_COLORIZATION_IN_PROGRESS, false);
+        return;
+      }
+
+      // generateSegmentationMap only writes the seg file when num_segments < 255
+      // (util/segmentation.js); at or above that it returns a path to a file it
+      // never wrote, so analyzeRef would choke on the missing segmap and surface
+      // a generic server error. Show the same "too many segments" dialog COLORIZE
+      // uses and bail — the finally clears the analyze overlay.
+      if (numSegments >= 255) {
+        showColorizeErrorDialog(COLORIZE_RUN_ERROR.TOO_MANY_SEGMENTS, thisFrameNr);
         return;
       }
 

@@ -137,7 +137,7 @@ export default {
    * Returns true if at least one frame has image data
    */
   [LAYER_HAS_FRAMES]: state => (layerId) => {
-    const layer = state.layers[layerId]; // TODO: Is this save? Index might be out of bounds.
+    const layer = state.layers[layerId];
     if (!layer) { return false; }
     return layer.frames.length > 0 && layer.frames.some(f => f && f.imageDataId);
   },
@@ -155,7 +155,7 @@ export default {
   },
 
   [FRAMES_BY_LAYER_ID]: state => (layerId) => {
-    const layer = state.layers[layerId]; // TODO: Is this save? Index might be out of bounds.
+    const layer = state.layers[layerId];
     if (!layer) {
       console.error('Layer ID does not exist');
       return [];

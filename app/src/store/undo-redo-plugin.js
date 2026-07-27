@@ -53,6 +53,10 @@ import { diff } from '@/services/state-patch';
 import UndoRedoStack from './UndoRedoStack';
 
 import UndoRedoItem from './UndoRedoItem';
+// The fresh-project defaults. Legacy .cdm files missing a field should adopt
+// today's default, so the backfill reads from here rather than duplicating the
+// literals (which is how they silently drifted: maxAiDilationSize 30 vs 8, etc.).
+import defaultState from './state';
 
 // Patches are cheap (only touched values are retained), so we can afford a much
 // deeper history than the old whole-clone model allowed.
@@ -509,13 +513,13 @@ export function loadcdm(stateObject) {
     newState.lineThreshold = 127;
   }
   if (!newState.maxAiDilationSize) {
-    newState.maxAiDilationSize = 30;
+    newState.maxAiDilationSize = defaultState.maxAiDilationSize;
   }
-    if (!newState.maxTbDilationSize) {
-    newState.maxTbDilationSize = 30;
+  if (!newState.maxTbDilationSize) {
+    newState.maxTbDilationSize = defaultState.maxTbDilationSize;
   }
   if (!newState.minSegSize) {
-    newState.minSegSize = 1;
+    newState.minSegSize = defaultState.minSegSize;
   }
   if (!newState.segPanelHighlight) {
     newState.segPanelHighlight = false;
@@ -524,8 +528,11 @@ export function loadcdm(stateObject) {
   if (!newState.projectId) {
     newState.projectId = (Math.floor((Math.random() * (99999999 - 10000000)) + 10000000));
   }
-  if (!newState.autoAlpha){
-    newState.autoAlpha = false;
+  // Absent means the field predates autoAlpha — adopt the default. Only
+  // backfill when it's not already a boolean so an explicit false is preserved
+  // (same guard the aiGapCloserEnabled backfill uses).
+  if (typeof newState.autoAlpha !== 'boolean') {
+    newState.autoAlpha = defaultState.autoAlpha;
   }
   if (typeof newState.aiGapCloserEnabled !== 'boolean') {
     // Files saved before this field existed load a state object WITHOUT the
