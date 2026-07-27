@@ -38,20 +38,26 @@ Remaining from the design:
 ## app (Electron / Vue renderer + main)
 
 ### P2 — performance
-- Segmentation map recomputed unconditionally; add a checksum cache. → [util/segmentation.js:32](../app/src/util/segmentation.js#L32)
-- RadialGradient re-created every render loop; build once and re-use. → [components/MainPane.vue:1165](../app/src/components/MainPane.vue#L1165)
-- `playerInterval` lives in reactive Vuex state; move it out. → [store/state.js:69](../app/src/store/state.js#L69)
+_All clear (2026-07-27 sweep). `playerInterval` moved out of reactive Vuex; the
+segmentation-checksum and RadialGradient items were stale (segmap caching already
+lives at the callers via content-addressed filenames; the RadialGradient path is
+commented out, superseded by `stampBrushDraw`). See "Recently resolved"._
 
 ### P3 — cleanup / rename
+
+The 2026-07-27 sweep cleared the dead-code removal, the `modal.js` →
+`server-client.js` rename, and the CoreML-cache double-count (see "Recently
+resolved"). The rest below are **deferred with cause**: large refactors with no
+live bug paying for them, a persisted-key rename that needs a migration, and
+UI / hot-drawing-path changes that need interactive testing a code sweep can't do.
+
 - The big storage flip (deliberately deferred): the v2 `.cdm` document section is derived-and-validated only; `state.layers` + ghosts + `saveState` remain the source of truth. Flipping (Document primary, `saveState` dropped, ghost color records → real Cels) is ~100+ read-site churn with no live bug paying for it. Entry point when it happens: the seam + validation warning in `LOAD_FILE` ([actions.js:703](../app/src/store/actions.js#L703)). → [docs/temp/architecture.md:283](temp/architecture.md#L283)
-- Legacy job flags: the `*InProgress` / `*CanceledByUser` / progress keys still exist as JobRunner-maintained mirrors, and cancellation still bridges through `SET_*_CANCELED_BY_USER` commits ([actions.js:496](../app/src/store/actions.js#L496)). Deleting the mirrors means porting every reader (waiting screens, cancel buttons, menu state) to observe the runner.
-- Dead code to remove: `app/src/server.js` + most of `binaries.js` (the old spawn-a-bundled-server path; nothing imports `startServer`/`stopServer`), `SET_TMP_IMAGE_ROOT_PATH`, the stock Cypress scaffold under `tests/e2e/`. → [store/mutation-types.js:15](../app/src/store/mutation-types.js#L15), [store/mutations.js:448](../app/src/store/mutations.js#L448)
-- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead (it is the playhead, not a selection); rename `util/modal.js` → `server-client.js` to end the Modal-vs-modal confusion. → [store/state.js:35](../app/src/store/state.js#L35), [store/getter-types.js:5](../app/src/store/getter-types.js#L5)
-- Layer choice hard-coded where it should follow the last-active layer. → [components/MainPane.vue:1349](../app/src/components/MainPane.vue#L1349), [util/KeyHandler.js:219](../app/src/util/KeyHandler.js#L219)
-- Duplicated mouse-move block. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
-- Sidebar height hack (flexbox). → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
-- Colour-wheel timer hack. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
-- `evaluateEmbeddedCapability` always reserves +5 GB CoreML cache on macOS even when the compiled cache already exists on disk (conservative double-count; current behavior is codified by a test). Probe the existing cache size to avoid a false disk-blocker on a near-full volume. → [util/embedded-capability.js:76](../app/src/util/embedded-capability.js#L76)
+- Legacy job flags: the `*InProgress` / `*CanceledByUser` / progress keys still exist as JobRunner-maintained mirrors, and cancellation still bridges through `SET_*_CANCELED_BY_USER` commits ([actions.js:496](../app/src/store/actions.js#L496)). Deleting the mirrors means porting every reader (waiting screens, cancel buttons, menu state) to observe the runner — pure refactor, no live bug.
+- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead (it is the playhead, not a selection). **Deferred:** ~74 refs across 10 files, and `selectedFrame` *is* the persisted `.cdm` key — the rename needs a `loadcdm` migration (`playhead = selectedFrame`) or old files silently lose the saved playhead position, plus word-boundary care to avoid colliding with the real multi-select concept (`selectedFrames`, `*_FOR_SELECTED_FRAME`). Its own PR, not a sweep. → [store/state.js:35](../app/src/store/state.js#L35), [store/getter-types.js:5](../app/src/store/getter-types.js#L5)
+- Layer choice hard-coded where it should follow the last-active layer. **Deferred:** a drawing-behavior change in the hot canvas path; needs interactive testing. → [components/MainPane.vue:1349](../app/src/components/MainPane.vue#L1349), [util/KeyHandler.js:219](../app/src/util/KeyHandler.js#L219)
+- Duplicated mouse-move block. **Deferred:** extracting shared setup from the live drawing path; same interactive-test gap. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
+- Sidebar height hack (flexbox). **Deferred:** CSS hack, needs visual verification. → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
+- Colour-wheel timer hack. **Deferred:** timing hack, needs interactive verification. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
 
 ### P4 — future
 - Handle app-update failure via popup. → [background.js:585](../app/src/background.js#L585)
@@ -99,6 +105,28 @@ code-review findings (deferred) plus the doc roadmap.
 
 Closed since this file was created — listed so they aren't re-filed:
 
+- **app P2/P3 sweep** — 2026-07-27. Cleared all three P2s and three P3s:
+  - *`playerInterval` in reactive Vuex (P2):* it was a setInterval/RAF handle
+    reassigned every animation frame during playback, with no reactive readers.
+    Moved to a module-local `playerHandle` in `mutations.js`; dropped from
+    `state.js` + `default-state.js` (no longer serialized into a `.cdm`).
+  - *Segmentation recompute (P2):* stale — both callers (`ANALYZE_CURRENT_FRAME`,
+    `ensureSegMap`) already skip the call when a content-addressed segmap file
+    exists. Replaced the TODO with a note pointing at that cache.
+  - *RadialGradient re-created per render (P2):* stale — all of it is commented
+    out, superseded by `stampBrushDraw`; no live perf issue.
+  - *Dead code (P3):* deleted `src/server.js` (the old spawn-a-bundled-server
+    path) + its three now-orphaned `binaries.js` exports; removed
+    `SET_TMP_IMAGE_ROOT_PATH` (mutation only wrote a never-read field) as a
+    6-site set; deleted the stock Cypress scaffold (the real e2e suite is the
+    CDP harness `tests/e2e/run.js`).
+  - *`util/modal.js` → `server-client.js` (P3):* it's the ML-server HTTP client,
+    not a UI modal; renamed the file + 5 importers + the jest.mock (symbols keep
+    the `modal*` prefix — a separate wider rename).
+  - *CoreML-cache disk double-count (P2/P3):* the capability probe now measures
+    the existing coreml-cache size and the evaluator reserves only the
+    not-yet-compiled remainder, so a near-full volume with a built cache is no
+    longer falsely blocked. Backward-compatible (absent → full reservation).
 - **serving/sidecar cleanup sweep** — 2026-07-27. Three of the four P3 items:
   - *Bucket-only gap config had no CPU fallback:* `Engine::new` now warns at
     startup when the gap EP is an accelerator (CoreML/DirectML) but no dynamic
