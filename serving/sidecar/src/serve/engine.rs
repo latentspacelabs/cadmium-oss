@@ -24,12 +24,15 @@
 //!             supplied; dml when running on Windows with `--ant-model-tiled`
 //!             supplied; else cpu.
 //!
-//! The GapCloser (`/segment` with strength > 0) runs on CoreML on macOS when
-//! its batch-pinned export (`--gap-model-bucket`) is supplied under the
-//! coreml/auto EP — the 512x512 tiles are forwarded in fixed batches of
-//! `GAP_COREML_BATCH` (~16x faster than the CPU EP on a high-res drawing).
-//! Otherwise (no bucket export, non-macOS, or a CoreML init failure) it runs
-//! on the CPU EP, one tile at a time.
+//! The GapCloser (`/segment` with strength > 0) runs on an accelerator when
+//! its batched export (`--gap-model-bucket`) is supplied: CoreML on macOS
+//! (coreml/auto, the batch-pinned fp32 export) or DirectML on Windows
+//! (dml/auto, the fp16 export — fp32 batches OOM a 16 GB WDDM card). The
+//! 512x512 tiles are forwarded in fixed batches of `GAP_ACCEL_BATCH`
+//! (~16x faster than the CPU EP on macOS; ~350x on the Windows T4 rig, where
+//! the 4-vCPU CPU path is otherwise multi-second). Otherwise (no export,
+//! unsupported OS, or an EP init failure) it runs on the CPU EP, one tile at
+//! a time.
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -47,10 +50,13 @@ use crate::tokenize::bucket::{pad_feed_to_bucket, CORPUS_BUCKET};
 use crate::tokenize::feed::AntFeed;
 use crate::tokenize::Tensor;
 
-/// The batch the CoreML gap-closer export (`--gap-model-bucket`) is pinned to.
+/// The batch the accelerated gap-closer export (`--gap-model-bucket`) runs.
 /// Tiles are forwarded in chunks of this size, padding the final short chunk
-/// (conv is per-sample, so the pad tiles never affect the real ones).
-const GAP_COREML_BATCH: usize = 24;
+/// (conv is per-sample, so the pad tiles never affect the real ones). The
+/// CoreML export is statically pinned to this batch; the DirectML fp16 export
+/// has a dynamic batch but is fed the same fixed chunk so one code path serves
+/// both. 24 matches the production `run_segment` batch.
+const GAP_ACCEL_BATCH: usize = 24;
 
 // ---------------------------------------------------------------------------
 // EP selection
@@ -97,8 +103,20 @@ enum AntEp {
 enum GapEp {
     /// Dynamic model, CPU EP, one 512x512 tile per forward.
     Cpu,
-    /// Batch-pinned model on CoreML; falls back to CPU on a CoreML init error.
+    /// Batch-pinned fp32 model on CoreML (macOS); CPU fallback on init error.
     CoreMl,
+    /// fp16 model on DirectML (Windows); CPU fallback on init error. fp32 is
+    /// not viable on DML — batch-24 fp32 OOMs on a 16 GB WDDM card — so the
+    /// Windows accelerator model is the fp16 export (keep_io_types → f32 I/O,
+    /// so the forward code is identical to the CoreML path).
+    Dml,
+}
+
+impl GapEp {
+    /// The batched accelerator EPs (CoreML/DML) that go through `run_gap_accel`.
+    fn is_accel(self) -> bool {
+        matches!(self, GapEp::CoreMl | GapEp::Dml)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -155,13 +173,14 @@ pub struct Engine {
     gap_ep: GapEp,
     /// Dynamic GapCloser model on the CPU EP (one tile per forward).
     gap: Mutex<Option<Session>>,
-    /// Batch-pinned GapCloser model on the CoreML EP (batched tiles).
-    gap_coreml: Mutex<Option<Session>>,
-    /// Latched once the CoreML gap build fails (prewarm or lazy): the compile
-    /// won't succeed on a retry with the same model+machine, so every later
-    /// `/segment` skips straight to the CPU EP instead of re-paying the failed
-    /// build. Never reset for the process's life.
-    gap_coreml_failed: AtomicBool,
+    /// Batched GapCloser accelerator session (CoreML fp32 on macOS, DirectML
+    /// fp16 on Windows) — built on first use / prewarm.
+    gap_accel: Mutex<Option<Session>>,
+    /// Latched once the gap accelerator build fails (prewarm or lazy): the
+    /// build won't succeed on a retry with the same model+machine, so every
+    /// later `/segment` skips straight to the CPU EP instead of re-paying the
+    /// failed build. Never reset for the process's life.
+    gap_accel_failed: AtomicBool,
     /// The non-CoreML AnT session: the dynamic model on the CPU EP, or (when
     /// `ant_ep` is Dml) the tiled model on DirectML — with a lazy fallback to
     /// the dynamic model on the CPU EP if DirectML can't initialize.
@@ -332,26 +351,34 @@ impl Engine {
                 AntEp::Dml
             }
         };
-        // GapCloser: CoreML on macOS under coreml/auto when its batch-pinned
-        // export is supplied; CPU everywhere else.
-        let gap_ep = if cfg!(target_os = "macos") && matches!(ep, EpSelect::Auto | EpSelect::CoreMl)
-        {
-            if gap_bucket_model_path.is_some() {
-                GapEp::CoreMl
+        // GapCloser acceleration: CoreML on macOS (coreml/auto) or DirectML on
+        // Windows (dml/auto) when the platform's batched export is supplied;
+        // CPU everywhere else (explicit --ep cpu, or an unsupported OS).
+        let gap_accel_ep =
+            if cfg!(target_os = "macos") && matches!(ep, EpSelect::Auto | EpSelect::CoreMl) {
+                Some(GapEp::CoreMl)
+            } else if cfg!(target_os = "windows") && matches!(ep, EpSelect::Auto | EpSelect::Dml) {
+                Some(GapEp::Dml)
             } else {
+                None
+            };
+        let gap_ep = match gap_accel_ep {
+            Some(accel) if gap_bucket_model_path.is_some() => accel,
+            Some(_) => {
+                // The accelerator EP is available but its model is absent —
+                // the actionable, easy-to-miss degradation (surfaced in /health).
                 gap_reason = Some(
                     "accelerator model not configured (--gap-model-bucket / \
-                     gap_closer_fp32_bucket.onnx)"
+                     gap_closer_fp32_bucket.onnx on macOS, gap_closer_fp16.onnx on Windows)"
                         .into(),
                 );
                 GapEp::Cpu
             }
-        } else {
-            GapEp::Cpu
+            None => GapEp::Cpu,
         };
         tracing::info!(
             ant_ep = Self::ep_label(ant_ep),
-            gap_ep = if gap_ep == GapEp::CoreMl { "coreml" } else { "cpu" },
+            gap_ep = Self::gap_ep_label(gap_ep),
             "execution providers resolved"
         );
         Ok(Engine {
@@ -364,8 +391,8 @@ impl Engine {
             ant_ep,
             gap_ep,
             gap: Mutex::new(None),
-            gap_coreml: Mutex::new(None),
-            gap_coreml_failed: AtomicBool::new(false),
+            gap_accel: Mutex::new(None),
+            gap_accel_failed: AtomicBool::new(false),
             ant: Mutex::new(None),
             ant_bucket: Mutex::new(None),
             ant_bucket_gate: AtomicU8::new(GATE_IDLE),
@@ -409,25 +436,30 @@ impl Engine {
         let gap_reason = self.gap_accel_reason.lock().ok().and_then(|g| g.clone());
         let segment = match self.gap_ep {
             GapEp::Cpu => AccelCapability { planned: "cpu", active: "cpu", reason: gap_reason },
-            GapEp::CoreMl => AccelCapability {
-                planned: "coreml",
-                active: if self.gap_coreml_failed.load(Ordering::SeqCst) { "cpu" } else { "coreml" },
-                reason: gap_reason,
-            },
+            GapEp::CoreMl | GapEp::Dml => {
+                let planned = Self::gap_ep_label(self.gap_ep);
+                AccelCapability {
+                    planned,
+                    // Optimistic until the first build; a build failure latches
+                    // the reason and drops the active EP to CPU.
+                    active: if self.gap_accel_failed.load(Ordering::SeqCst) { "cpu" } else { planned },
+                    reason: gap_reason,
+                }
+            }
         };
         AccelReport { colorize, segment }
     }
 
-    /// Build the CoreML sessions in a background thread so the first user
-    /// request doesn't pay for them: the GapCloser bucket compiles in ~3s,
-    /// the AnT bucket in ~107s cold / ~20s from the model cache. While the
-    /// AnT build is in flight (or if it failed), `run_ant` serves from the
-    /// dynamic CPU session — colorize is never worse than the CPU-only path.
-    /// No-op unless the resolved plan actually uses CoreML.
+    /// Build the accelerator sessions in a background thread so the first user
+    /// request doesn't pay for them: the GapCloser accelerator builds in ~2-3s
+    /// (CoreML compile / DirectML init), the AnT bucket in ~107s cold / ~20s
+    /// from the model cache. While the AnT build is in flight (or if it
+    /// failed), `run_ant` serves from the dynamic CPU session — colorize is
+    /// never worse than the CPU-only path. No-op unless the resolved plan uses
+    /// an accelerator.
     pub fn prewarm(self: &Arc<Self>) {
-        let coreml_wanted =
-            self.gap_ep == GapEp::CoreMl || self.ant_ep == AntEp::CoreMlBucket;
-        if !coreml_wanted {
+        let prewarm_gap = self.gap_ep.is_accel();
+        if !prewarm_gap && self.ant_ep != AntEp::CoreMlBucket {
             return;
         }
         // Claim the AnT bucket gate now, on the caller's thread (process start,
@@ -443,27 +475,8 @@ impl Engine {
                 .is_ok();
         let engine = Arc::clone(self);
         std::thread::spawn(move || {
-            if engine.gap_ep == GapEp::CoreMl {
-                if let (Some(path), Ok(mut guard)) =
-                    (engine.gap_bucket_model_path.clone(), engine.gap_coreml.lock())
-                {
-                    if guard.is_none() {
-                        match build_coreml_session(
-                            "GapCloser bucket",
-                            &path,
-                            engine.coreml_cache_dir.as_deref(),
-                        ) {
-                            Ok(session) => *guard = Some(session),
-                            // The same compile won't succeed on a lazy retry;
-                            // latch it so every /segment goes straight to CPU.
-                            Err(e) => {
-                                engine.gap_coreml_failed.store(true, Ordering::SeqCst);
-                                Self::note_accel_reason(&engine.gap_accel_reason, &e);
-                                tracing::warn!(error = %e, "GapCloser prewarm failed; using the CPU EP");
-                            }
-                        }
-                    }
-                }
+            if prewarm_gap {
+                engine.ensure_gap_accel_session();
             }
             if build_ant {
                 let gate = match engine.build_ant_bucket_state() {
@@ -501,6 +514,14 @@ impl Engine {
         }
     }
 
+    fn gap_ep_label(ep: GapEp) -> &'static str {
+        match ep {
+            GapEp::Cpu => "cpu",
+            GapEp::CoreMl => "coreml",
+            GapEp::Dml => "dml",
+        }
+    }
+
     /// The resolved AnT EP, for harness/report output.
     pub fn ant_ep_name(&self) -> &'static str {
         Self::ep_label(self.ant_ep)
@@ -527,19 +548,58 @@ impl Engine {
     /// Run the GapCloser UDF net over every 512x512 tile, returning one udf
     /// plane (`TILE_SIZE*TILE_SIZE` f32) per input tile, in order. `Ok(None)`
     /// when no gap model is configured (the caller does trapped-ball only).
-    /// On the CoreML plan tiles are forwarded in fixed batches; a CoreML
-    /// build/init error falls back to the CPU EP.
+    /// On an accelerator plan (CoreML/DirectML) tiles are forwarded in fixed
+    /// batches; a build/init error falls back to the CPU EP.
     pub fn run_gap_udfs(&self, tiles: &[PlaneF32]) -> Result<Option<Vec<Vec<f32>>>, String> {
-        if self.gap_ep == GapEp::CoreMl && !self.gap_coreml_failed.load(Ordering::SeqCst) {
-            match self.run_gap_coreml(tiles) {
+        if self.gap_ep.is_accel() && !self.gap_accel_failed.load(Ordering::SeqCst) {
+            match self.run_gap_accel(tiles) {
                 Ok(udfs) => return Ok(Some(udfs)),
                 Err(e) => tracing::warn!(
                     error = %e,
-                    "CoreML gap-closer unavailable; falling back to the CPU EP"
+                    ep = Self::gap_ep_label(self.gap_ep),
+                    "accelerated gap-closer unavailable; falling back to the CPU EP"
                 ),
             }
         }
         self.run_gap_cpu(tiles)
+    }
+
+    /// Build the batched gap accelerator session into `gap_accel` if absent.
+    /// A build error latches `gap_accel_failed` and records the reason so
+    /// callers drop to the CPU EP and never re-pay a build that can't succeed
+    /// on this model+machine. No-op on the CPU plan.
+    fn ensure_gap_accel_session(&self) {
+        if self.gap_accel_failed.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(path) = self.gap_bucket_model_path.clone() else {
+            return;
+        };
+        let Ok(mut guard) = self.gap_accel.lock() else {
+            return;
+        };
+        if guard.is_some() {
+            return;
+        }
+        let built = match self.gap_ep {
+            GapEp::CoreMl => {
+                build_coreml_session("GapCloser bucket", &path, self.coreml_cache_dir.as_deref())
+            }
+            GapEp::Dml => build_dml_session("GapCloser fp16", &path),
+            GapEp::Cpu => return,
+        };
+        match built {
+            Ok(session) => *guard = Some(session),
+            Err(e) => {
+                self.gap_accel_failed.store(true, Ordering::SeqCst);
+                Self::note_accel_reason(&self.gap_accel_reason, &e);
+                tracing::warn!(
+                    error = %e,
+                    ep = Self::gap_ep_label(self.gap_ep),
+                    "GapCloser accelerator build failed; using the CPU EP"
+                );
+            }
+        }
     }
 
     /// CPU EP: dynamic gap session (built on first use), one 512x512 tile per
@@ -563,33 +623,27 @@ impl Engine {
         })
     }
 
-    /// CoreML EP: batch-pinned gap session (built on first use), tiles
-    /// forwarded in chunks of `GAP_COREML_BATCH`, the last chunk zero-padded
-    /// (conv is per-sample, so pad tiles don't touch the real outputs).
-    fn run_gap_coreml(&self, tiles: &[PlaneF32]) -> Result<Vec<Vec<f32>>, String> {
-        let Some(path) = &self.gap_bucket_model_path else {
-            return Err("no gap bucket model configured (start with --gap-model-bucket)".into());
-        };
-        let mut guard = self.gap_coreml.lock().map_err(|_| "gap coreml session poisoned")?;
-        if guard.is_none() {
-            match build_coreml_session("GapCloser bucket", path, self.coreml_cache_dir.as_deref()) {
-                Ok(session) => *guard = Some(session),
-                Err(e) => {
-                    // Latch the build failure so run_gap_udfs stops retrying a
-                    // compile that can't succeed and serves from the CPU EP.
-                    self.gap_coreml_failed.store(true, Ordering::SeqCst);
-                    Self::note_accel_reason(&self.gap_accel_reason, &e);
-                    return Err(e);
-                }
-            }
+    /// Accelerator EP (CoreML fp32 / DirectML fp16): the batched gap session
+    /// (built on first use / prewarm), tiles forwarded in chunks of
+    /// `GAP_ACCEL_BATCH`, the last chunk zero-padded (conv is per-sample, so
+    /// pad tiles don't touch the real outputs). Both exports take f32 I/O, so
+    /// the forward is EP-agnostic. Errors here fall back to the CPU EP in
+    /// `run_gap_udfs`.
+    fn run_gap_accel(&self, tiles: &[PlaneF32]) -> Result<Vec<Vec<f32>>, String> {
+        if self.gap_bucket_model_path.is_none() {
+            return Err("no gap accelerator model configured (start with --gap-model-bucket)".into());
         }
-        let session = guard.as_mut().unwrap();
+        self.ensure_gap_accel_session();
+        let mut guard = self.gap_accel.lock().map_err(|_| "gap accelerator session poisoned")?;
+        let session = guard
+            .as_mut()
+            .ok_or("gap accelerator session unavailable (build failed)")?;
         let tile_len = TILE_SIZE * TILE_SIZE;
         let mut udfs: Vec<Vec<f32>> = Vec::with_capacity(tiles.len());
         let mut start = 0;
         while start < tiles.len() {
-            let end = (start + GAP_COREML_BATCH).min(tiles.len());
-            let mut batch = vec![0f32; GAP_COREML_BATCH * tile_len];
+            let end = (start + GAP_ACCEL_BATCH).min(tiles.len());
+            let mut batch = vec![0f32; GAP_ACCEL_BATCH * tile_len];
             for (b, tile) in tiles[start..end].iter().enumerate() {
                 if tile.data.len() != tile_len {
                     return Err(format!(
@@ -599,11 +653,11 @@ impl Engine {
                 }
                 batch[b * tile_len..(b + 1) * tile_len].copy_from_slice(&tile.data);
             }
-            let tensor = OrtTensor::from_array(([GAP_COREML_BATCH, 1, TILE_SIZE, TILE_SIZE], batch))
+            let tensor = OrtTensor::from_array(([GAP_ACCEL_BATCH, 1, TILE_SIZE, TILE_SIZE], batch))
                 .map_err(|e| format!("gap batch tensor: {e}"))?;
             let outputs = session
                 .run(ort::inputs!["tiles" => tensor])
-                .map_err(|e| format!("gap-closer CoreML forward: {e}"))?;
+                .map_err(|e| format!("gap-closer accelerator forward: {e}"))?;
             let (_, out) = outputs.iter().next().ok_or("gap-closer produced no outputs")?;
             let (_, data) = out
                 .try_extract_tensor::<f32>()
@@ -849,5 +903,54 @@ mod tests {
         assert!(r.colorize.reason.unwrap().contains("ant-model-bucket"));
         assert_eq!(r.segment.active, "cpu");
         assert!(r.segment.reason.unwrap().contains("gap-model-bucket"));
+    }
+
+    /// Explicit `--ep cpu` must NOT accelerate even when the accelerator model
+    /// is present — CPU-by-choice carries no degradation reason.
+    #[test]
+    fn accel_report_explicit_cpu_ignores_a_present_gap_model() {
+        let gap_bucket = Some(std::path::PathBuf::from("/fake/gap_bucket.onnx"));
+        let e = Engine::new(None, gap_bucket, None, None, None, EpSelect::Cpu, None).unwrap();
+        let r = e.accel_report();
+        assert_eq!((r.segment.planned, r.segment.active), ("cpu", "cpu"));
+        assert!(r.segment.reason.is_none());
+    }
+
+    /// macOS `auto` WITH the gap bucket present: segment plans CoreML and the
+    /// report is optimistically `coreml` until a build fails.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn accel_report_macos_auto_with_gap_model_plans_coreml() {
+        let gap_bucket = Some(std::path::PathBuf::from("/fake/gap_closer_fp32_bucket.onnx"));
+        let e = Engine::new(None, gap_bucket, None, None, None, EpSelect::Auto, None).unwrap();
+        let r = e.accel_report();
+        assert_eq!((r.segment.planned, r.segment.active), ("coreml", "coreml"));
+        assert!(r.segment.reason.is_none());
+    }
+
+    /// Windows `auto` WITH the fp16 gap model present: segment plans DirectML.
+    /// Without it, the report must name the missing model (the field bug that
+    /// left every Windows gap-close on the CPU).
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn accel_report_windows_gap_dml_selection() {
+        let with = Engine::new(
+            None,
+            Some(std::path::PathBuf::from("/fake/gap_closer_fp16.onnx")),
+            None,
+            None,
+            None,
+            EpSelect::Auto,
+            None,
+        )
+        .unwrap();
+        let r = with.accel_report();
+        assert_eq!((r.segment.planned, r.segment.active), ("dml", "dml"));
+        assert!(r.segment.reason.is_none());
+
+        let without = Engine::new(None, None, None, None, None, EpSelect::Auto, None).unwrap();
+        let r = without.accel_report();
+        assert_eq!(r.segment.active, "cpu");
+        assert!(r.segment.reason.unwrap().contains("gap_closer_fp16.onnx"));
     }
 }

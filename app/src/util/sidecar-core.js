@@ -35,8 +35,13 @@ export const MODEL_GAP = 'gap_closer_fp32.onnx';
 export const MODEL_ANT_BUCKET = 'ant_v2_fp32_bucket.onnx';
 // Optional: the tiled-scatter export that enables the DirectML fast path.
 export const MODEL_ANT_TILED = 'ant_v2_fp32_tiledscatter.onnx';
-// Optional: the batch-pinned GapCloser export that enables the CoreML gap path.
+// Optional: the batch-pinned GapCloser export that enables the CoreML gap path
+// (macOS). Passed to the sidecar as --gap-model-bucket.
 export const MODEL_GAP_BUCKET = 'gap_closer_fp32_bucket.onnx';
+// Optional: the fp16 GapCloser export that enables the DirectML gap path
+// (Windows). Also passed as --gap-model-bucket — the sidecar picks CoreML or
+// DirectML by OS; only the model file differs (fp32 can't batch on DML).
+export const MODEL_GAP_FP16 = 'gap_closer_fp16.onnx';
 
 export const SIDECAR_BIN_BASENAME = 'cadmium-sidecar';
 
@@ -87,7 +92,13 @@ export function resolveSidecarPaths({
     gapModelPath: path.join(modelsDir, MODEL_GAP),
     antBucketModelPath: path.join(modelsDir, MODEL_ANT_BUCKET),
     antTiledModelPath: path.join(modelsDir, MODEL_ANT_TILED),
-    gapBucketModelPath: path.join(modelsDir, MODEL_GAP_BUCKET),
+    // The gap accelerator model is platform-specific: the fp16 export for the
+    // Windows DirectML path, the batch-pinned fp32 export for the macOS CoreML
+    // path. Both are passed to the sidecar via --gap-model-bucket.
+    gapBucketModelPath: path.join(
+      modelsDir,
+      platform === 'win32' ? MODEL_GAP_FP16 : MODEL_GAP_BUCKET,
+    ),
     // Where CoreML persists compiled models (macOS): the AnT bucket compiles
     // once (~107s, background) then reloads in ~20s per process start.
     coremlCacheDir: path.join(userDataPath, 'sidecar', 'coreml-cache'),
@@ -128,10 +139,11 @@ export function missingAccelFiles(paths, existsFn, platform) {
 
 /**
  * The argv (after the binary path) for one sidecar spawn. `--ep auto` lets
- * the sidecar pick its fast path per OS: CoreML on macOS when the bucket model
- * is supplied, DirectML on Windows when the tiled model is supplied, else CPU.
- * On Windows with the tiled model but no DirectX-12 device, the sidecar itself
- * falls back to the stock model on the CPU EP.
+ * the sidecar pick its fast path per OS, per capability: colorize on CoreML
+ * (macOS, bucket model) / DirectML (Windows, tiled model); gap closing on
+ * CoreML (macOS, fp32 bucket) / DirectML (Windows, fp16 model). Both gap
+ * accelerator models are passed as --gap-model-bucket — the sidecar picks the
+ * EP by OS. Anything unsupplied or unsupported falls back to the CPU EP.
  */
 export function buildSidecarArgs({
   port, antModelPath, gapModelPath, antBucketModelPath = null, antTiledModelPath = null,

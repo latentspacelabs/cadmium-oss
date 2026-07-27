@@ -79,6 +79,23 @@ const MODEL_FILES = [
     required: false,
     platform: 'darwin',
   },
+  {
+    // GapCloser fp16 — the DirectML fast path for /segment gap closing on
+    // Windows (--gap-model-bucket). fp32 is not viable on DML: batch-24 fp32
+    // OOMs a 16 GB WDDM card. The fp16 export uses keep_io_types (float32
+    // I/O, fp16 internals), so the sidecar feeds it exactly like the fp32
+    // path. Boundary parity vs the fp32 anchor: 10 flips / 10.5M pixels
+    // (99.999905%) on real line tiles — the trapped-ball segmentation
+    // downstream absorbs those isolated threshold-straddling pixels.
+    // Measured on a T4: batch-24 ~0.7s vs the CPU EP's multi-second path.
+    // Optional and win32-only: without it, Windows gap closing runs on the
+    // CPU EP one tile at a time.
+    file: 'gap_closer_fp16.onnx',
+    bytes: 248798392,
+    sha256: '1976b93409591384b2177fab1a5b84ee9866ad1c2cfabdc1154e7835fead33d6',
+    required: false,
+    platform: 'win32',
+  },
 ];
 
 function modelUrl(file) {

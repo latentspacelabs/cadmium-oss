@@ -19,12 +19,12 @@ describe('resolveServingProfile', () => {
     expect(p.expected).toEqual({ colorize: 'coreml', segment: 'coreml' });
   });
 
-  it('win32: win-dml — tiled-scatter accelerator, DML colorize, CPU segment (no DML gap path yet)', () => {
+  it('win32: win-dml — tiled-scatter + fp16 gap accelerators, DML colorize AND segment', () => {
     const p = resolveServingProfile('win32');
     expect(p.name).toBe('win-dml');
-    expect(p.models.filter((m) => m.role === 'accelerator').map((m) => m.file))
-      .toEqual(['ant_v2_fp32_tiledscatter.onnx']);
-    expect(p.expected).toEqual({ colorize: 'dml', segment: 'cpu' });
+    expect(p.models.filter((m) => m.role === 'accelerator').map((m) => m.file).sort())
+      .toEqual(['ant_v2_fp32_tiledscatter.onnx', 'gap_closer_fp16.onnx']);
+    expect(p.expected).toEqual({ colorize: 'dml', segment: 'dml' });
   });
 
   it('anything else: cpu-only — required models only, CPU expected', () => {

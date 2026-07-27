@@ -42,8 +42,9 @@ export function resolveServingProfile(platform) {
     expected = { colorize: 'coreml', segment: 'coreml' };
   } else if (platform === 'win32') {
     name = 'win-dml';
-    // The DirectML gap-closer path doesn't exist yet (docs/todo.md).
-    expected = { colorize: 'dml', segment: 'cpu' };
+    // Both capabilities on DirectML: colorize via the tiled-scatter export,
+    // gap closing via the fp16 export (fp32 batches OOM a 16 GB WDDM card).
+    expected = { colorize: 'dml', segment: 'dml' };
   }
 
   return { name, platform, models, expected };

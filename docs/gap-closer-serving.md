@@ -61,16 +61,25 @@ robot corpus:
 **Parity:** the fp32 ONNX model's thresholded boundaries are pixel-identical
 to production torch-CUDA on all 12 corpus drawings (0 flips in 9.4 M tile
 pixels) — verified by `verify_gapclose --onnx`. The classical glue around it
-is byte-exact (same bin).
+is byte-exact (same bin). The **fp16** export (Windows/DirectML) is not
+bit-exact but boundary-safe: **10 flips in 10.5 M pixels (99.999905%)** vs the
+fp32 anchor on real line tiles (`serving/onnx/verify_gap_fp16.py`) — isolated
+threshold-straddling pixels the trapped-ball segmentation downstream absorbs.
+The fp32 ONNX re-exported from the checkpoint is byte-identical to the shipped
+`gap_closer_fp32.onnx` (same sha256), so the export path reproduces production.
 
 ## The Rust sidecar path
 
 `serving/sidecar/src/segment/tiled.rs::gap_close_stages` implements the
 whole predict body; `serve/segment_impl.rs` wires it behind `/segment`. The
 UDF model runs via ort: the CPU EP forwards one 512×512 tile per call (the
-byte-exact golden path), and on macOS `--gap-model-bucket` enables a CoreML EP
-path that forwards tiles in fixed batches of 24 (`Engine::run_gap_udfs`),
-falling back to the CPU EP on any build/init error. The empty-alpha branch, u8
+byte-exact golden path), and `--gap-model-bucket` enables a batched
+accelerator path (`Engine::run_gap_udfs` → `run_gap_accel`) that forwards
+tiles in fixed batches of 24 — **CoreML on macOS** (the fp32 batch-pinned
+export) and **DirectML on Windows** (the fp16 export; fp32 batches OOM a 16 GB
+WDDM card). Both exports take float32 I/O (`keep_io_types`), so one forward
+serves both EPs; either falls back to the CPU EP on any build/init error. The
+empty-alpha branch, u8
 label cast, and `num_segments` counting quirks of the Python handler are
 replicated exactly (gated by the recorded HTTP goldens).
 

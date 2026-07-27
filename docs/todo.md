@@ -125,10 +125,11 @@ code-review findings (deferred) plus the doc roadmap.
   (~2 MB/tile → ~650 MB transient for a ~256-tile 4K drawing) instead of
   streaming per-tile as the old path did. The fix is entangled with the CoreML
   batch-of-24 forward, so it's a refactor, not a one-liner. → [src/serve/segment_impl.rs:106](../serving/sidecar/src/serve/segment_impl.rs#L106)
-- **Gap-closer onto the DirectML GPU EP.** The CoreML batch path exists
-  (`--gap-model-bucket`); Windows still runs the gap net on CPU (~2.6 s vs
-  ~719 ms measured on DML fp16). Ship together with the fp16 0-flip boundary
-  check (see the Windows shakedown item under Release).
+- ~~**Gap-closer onto the DirectML GPU EP.**~~ **Done (v1.5.7).** `GapEp::Dml`
+  runs the fp16 export on DirectML (Windows), sharing the batched forward with
+  the CoreML path. fp16 boundary parity: 10 flips / 10.5 M px vs the fp32
+  anchor (`verify_gap_fp16.py`). Model published to `models-v1`; profile
+  `segment: 'dml'`. See "Recently resolved".
 
 ### P3 — cleanup / robustness
 - **Gap bucket artifact carries no `CACHE_KEY` metadata**, so a weight-only
@@ -162,6 +163,16 @@ code-review findings (deferred) plus the doc roadmap.
 
 Closed since this file was created — listed so they aren't re-filed:
 
+- **DirectML gap-closer (Windows GPU gap closing)** — 2026-07-27. Diagnosed
+  from a field report ("gap closer in CPU mode on Windows"): the sidecar's
+  `GapEp` had no DirectML variant, so Windows gap closing was CPU-only on
+  every machine (the AMD GPU was a red herring). Added `GapEp::Dml` sharing
+  the batched forward with CoreML (`run_gap_accel`); ships the fp16 export
+  (fp32 batches OOM a 16 GB WDDM card) as a win32 `models-v1` accelerator;
+  `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity 10 flips /
+  10.5 M px vs the fp32 anchor. Standalone DML bench on the T4: batch-24
+  ~0.7 s vs the 4-vCPU CPU path's multi-second gap close (sidecar-level
+  `/health segment=dml` e2e on the rig is the remaining verification).
 - **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
   pyproject/package.json declarations synced) — 2026-07-22.
 - **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,
