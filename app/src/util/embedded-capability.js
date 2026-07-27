@@ -71,9 +71,18 @@ export function evaluateEmbeddedCapability(caps, { neededBytes = 0 } = {}) {
   const c = caps || {};
   const platform = c.platform || '';
   const arch = c.arch || '';
-  // On macOS the CoreML model cache is real disk the embedded backend will
-  // consume beyond the download itself.
-  const cacheBytes = platform === 'darwin' ? COREML_CACHE_BYTES : 0;
+  // On macOS the CoreML model cache is real disk the embedded backend compiles
+  // beyond the download itself. Whatever is already on disk from a prior compile
+  // is already consumed (freeDiskBytes reflects it), so only the not-yet-built
+  // remainder needs reserving — otherwise a near-full volume with a fully-built
+  // cache is falsely blocked. `coremlCacheBytes` is the probed size of the
+  // existing cache (absent/unknown → 0, i.e. the full reservation).
+  const existingCacheBytes = platform === 'darwin'
+    ? Math.max(0, Number(c.coremlCacheBytes) || 0)
+    : 0;
+  const cacheBytes = platform === 'darwin'
+    ? Math.max(0, COREML_CACHE_BYTES - existingCacheBytes)
+    : 0;
   const needed = Math.max(0, Number(neededBytes) || 0) + cacheBytes;
 
   const checks = {};

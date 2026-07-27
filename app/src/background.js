@@ -586,6 +586,28 @@ ipcMain.handle('sidecar:models-progress', () => {
   return modelDownloader ? modelDownloader.getProgress() : { state: 'idle' };
 });
 
+// Best-effort recursive byte size of a directory (0 if missing/unreadable).
+function dirSizeBytes(dir) {
+  // eslint-disable-next-line global-require
+  const fs = require('fs');
+  // eslint-disable-next-line global-require
+  const path = require('path');
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return 0; // missing dir → nothing cached yet
+  }
+  let total = 0;
+  entries.forEach((ent) => {
+    const full = path.join(dir, ent.name);
+    try {
+      total += ent.isDirectory() ? dirSizeBytes(full) : fs.statSync(full).size;
+    } catch (e) { /* skip an unreadable entry */ }
+  });
+  return total;
+}
+
 // Machine capabilities for the "can this computer run the embedded backend?"
 // check in the Server Settings modal. Everything is best-effort — any probe
 // that throws just comes back null/undefined and the pure evaluator
@@ -616,6 +638,18 @@ ipcMain.handle('system:capabilities', async () => {
   } catch (e) {
     gpu = null;
   }
+  // macOS only: how much of the ~5 GB CoreML compile cache is already on disk.
+  // Already-compiled bytes are consumed space (freeDiskBytes reflects them), so
+  // the evaluator subtracts this from its cache reservation instead of
+  // double-counting a phantom +5 GB against a near-full volume.
+  let coremlCacheBytes = null;
+  if (process.platform === 'darwin') {
+    try {
+      coremlCacheBytes = dirSizeBytes(getSidecarManager().paths.coremlCacheDir);
+    } catch (e) {
+      coremlCacheBytes = null;
+    }
+  }
   return {
     platform: process.platform,
     arch: process.arch,
@@ -623,6 +657,7 @@ ipcMain.handle('system:capabilities', async () => {
     freeMem: os.freemem(),
     cpuCount: (os.cpus() || []).length,
     freeDiskBytes,
+    coremlCacheBytes,
     gpu,
   };
 });

@@ -99,6 +99,25 @@ describe('evaluateEmbeddedCapability — disk', () => {
     expect(ok.supported).toBe(true);
   });
 
+  it('macOS: an already-compiled CoreML cache is not double-counted against disk', () => {
+    // Full cache on disk → no additional reservation, so a near-full volume that
+    // only clears the headroom passes instead of being blocked by a phantom +5GB.
+    const full = evaluateEmbeddedCapability(
+      { ...OK_MAC, freeDiskBytes: DISK_HEADROOM_BYTES + 1, coremlCacheBytes: COREML_CACHE_BYTES },
+      { neededBytes: 0 },
+    );
+    expect(full.checks.disk.status).toBe('ok');
+    expect(full.checks.disk.neededBytes).toBe(0);
+    // A partially-built cache reserves only the not-yet-compiled remainder.
+    const half = COREML_CACHE_BYTES / 2;
+    const partial = evaluateEmbeddedCapability(
+      { ...OK_MAC, freeDiskBytes: half + DISK_HEADROOM_BYTES, coremlCacheBytes: half },
+      { neededBytes: 0 },
+    );
+    expect(partial.checks.disk.status).toBe('ok');
+    expect(partial.checks.disk.neededBytes).toBe(half);
+  });
+
   it('win32 carries no CoreML cache allowance', () => {
     const win = {
       ...OK_MAC, platform: 'win32', arch: 'x64', freeDiskBytes: 2 * GB,
