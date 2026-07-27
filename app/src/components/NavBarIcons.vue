@@ -37,6 +37,13 @@
       :src="refIconUrl"
     >
     </div>
+    <sidebar-item
+      :content="serverSettingsTippy"
+      v-tippy="{ placement : 'bottom' }"
+      :iconUrl="icons.serverSettings"
+      @click="$emit('open-server-settings')"
+      style="margin-top:0px"
+    ></sidebar-item>
   </div>
 </template> <!-- eslint-disable linebreak-style -->
 <script> /* eslint-disable linebreak-style */
@@ -78,6 +85,7 @@ export default {
       segOptionsToolId: TOOL_CONTROLS_SEG_OPTIONS,
       icons: {
         segOptions: require('../assets/icons/seg-options.svg'),
+        serverSettings: require('../assets/icons/server-settings.svg'),
       },
       refIconUrl: require('../assets/icons/referenceFolder.svg'),
       referenceToolId: TOOL_CONTROLS_ID_REFERENCE,
@@ -105,6 +113,7 @@ export default {
   computed: {
     segTippy() { return t('Analyze settings. In here you can adjust how Cadmium detects gaps and color areas.'); },
     refPanelTippy() { return t('Reference Panel. Import reference images to pick colors from.'); },
+    serverSettingsTippy() { return t('Server settings. Manage the backend, models, and hardware acceleration.'); },
     ...mapGetters({
       updateInProgress: UPDATE_IN_PROGRESS,
       updatePercentage: UPDATE_PERCENTAGE,
