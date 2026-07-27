@@ -62,9 +62,11 @@ robot corpus:
 to production torch-CUDA on all 12 corpus drawings (0 flips in 9.4 M tile
 pixels) — verified by `verify_gapclose --onnx`. The classical glue around it
 is byte-exact (same bin). The **fp16** export (Windows/DirectML) is not
-bit-exact but boundary-safe: **10 flips in 10.5 M pixels (99.999905%)** vs the
-fp32 anchor on real line tiles (`serving/onnx/verify_gap_fp16.py`) — isolated
-threshold-straddling pixels the trapped-ball segmentation downstream absorbs.
+bit-exact but boundary-safe vs the fp32 anchor on real line tiles
+(`serving/onnx/verify_gap_fp16.py`): **10 flips in 10.5 M pixels (99.999905%)**
+on the CPU-fp16 proxy, and **18 flips (99.999828%)** on the actual
+DirectML EP on a T4 — isolated threshold-straddling pixels the trapped-ball
+segmentation downstream absorbs.
 The fp32 ONNX re-exported from the checkpoint is byte-identical to the shipped
 `gap_closer_fp32.onnx` (same sha256), so the export path reproduces production.
 

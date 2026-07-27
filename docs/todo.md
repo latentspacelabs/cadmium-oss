@@ -169,10 +169,12 @@ Closed since this file was created — listed so they aren't re-filed:
   every machine (the AMD GPU was a red herring). Added `GapEp::Dml` sharing
   the batched forward with CoreML (`run_gap_accel`); ships the fp16 export
   (fp32 batches OOM a 16 GB WDDM card) as a win32 `models-v1` accelerator;
-  `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity 10 flips /
-  10.5 M px vs the fp32 anchor. Standalone DML bench on the T4: batch-24
-  ~0.7 s vs the 4-vCPU CPU path's multi-second gap close (sidecar-level
-  `/health segment=dml` e2e on the rig is the remaining verification).
+  `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity vs the fp32
+  anchor: 10 flips / 10.5 M px (CPU proxy), 18 flips on the actual DirectML EP
+  on a T4 — both ~99.9998%. Standalone DML bench on the T4: batch-24 ~0.7 s vs
+  the 4-vCPU CPU path's multi-second gap close (the sidecar-level
+  `/health segment=dml` integration e2e folds into the v1.5.7 Windows
+  shakedown, where CI builds the sidecar carrying this change).
 - **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
   pyproject/package.json declarations synced) — 2026-07-22.
 - **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,
