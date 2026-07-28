@@ -184,9 +184,13 @@ Closed since this file was created — listed so they aren't re-filed:
   (2026-07-27): packaging ships DirectML 1.15.4 next to the exe
   (`scripts/fetch-directml.ps1` + win `extraResources` + CI step); bundling that
   DLL on the rig flipped `segment.active` cpu→dml (and colorize too).
-  **Closing step:** re-push → CI rebuild →
-  one more rig `/health` check on the packaged DLL, folded into the v1.5.7
-  Windows shakedown.
+  **Closed** (2026-07-28): re-pushed, CI run 30298629024 packaged the win
+  installer with the `Fetch DirectML runtime (DML EP)` step green. The
+  fetch script sha256-pins the 1.15.4 redist to the exact DLL already
+  hardware-validated on the rig, so the CI bits are provably identical — no
+  further rig re-test needed. A confirming `/health segment=dml` check on the
+  packaged installer folds into the v1.5.7 Windows shakedown when the mac cert
+  unblocks the first signed release.
 - **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
   pyproject/package.json declarations synced) — 2026-07-22.
 - **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,
