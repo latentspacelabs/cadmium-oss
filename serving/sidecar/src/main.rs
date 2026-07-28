@@ -49,8 +49,10 @@ struct Args {
 
     /// Execution provider for the AnT forward: auto|cpu|coreml|dml.
     /// `auto` resolves to coreml on macOS when --ant-model-bucket is supplied,
-    /// dml on Windows when --ant-model-tiled is supplied, else cpu. The
-    /// GapCloser always runs on the CPU EP.
+    /// dml on Windows when --ant-model-tiled is supplied, else cpu. This flag
+    /// governs only the AnT forward; the GapCloser uses the matching
+    /// accelerator (CoreML on macOS / DirectML on Windows) when
+    /// --gap-model-bucket is supplied, else the CPU EP.
     #[arg(long, default_value = "auto")]
     ep: EpSelect,
 

@@ -31,7 +31,7 @@ release and, for the hosted backend, a remote server):
 flowchart TB
     subgraph renderer["Renderer — Vue 2.7 + Vuex (nodeIntegration)"]
         home["Home.vue<br/>MainPane · ServerSettingsModal"]
-        http["util/modal.js<br/>modalColorize / Segment / Preprocess"]
+        http["util/server-client.js<br/>modalColorize / Segment / Preprocess"]
         conn["connectivity-checker.js<br/>(first-use seam)"]
         platform["platform/index.js<br/>— the only IPC path"]
     end
@@ -63,7 +63,7 @@ flowchart TB
 ```
 
 The renderer never talks to the sidecar or the network directly: HTTP goes
-through `util/modal.js`, and every main-process capability goes through the
+through `util/server-client.js`, and every main-process capability goes through the
 `platform/index.js` seam. On first colorize the `connectivity-checker` either
 `ensureSidecar()`s the embedded backend (learning its loopback port over IPC)
 or reachability-checks the hosted URL.
@@ -275,11 +275,13 @@ mode. The modal validates, offers a `/health` connection test, and persists
 via `setPref` (through the main process, the single pref writer). The menu
 (`app/src/menu.js`) reopens it via the `show-server-settings` channel.
 
-The actual HTTP calls live in `app/src/util/modal.js` — **naming trap: "modal"
-means the Modal.com cloud platform the server historically ran on, not a UI
-modal**. It exposes `modalColorize` / `modalSegment` / `modalPreprocess`
-(axios, AbortController, connectivity pre-check, error dialogs) and returns
-either response data or a `MODAL_RESPONSES` sentinel string.
+The actual HTTP calls live in `app/src/util/server-client.js`. It exposes
+`modalColorize` / `modalSegment` / `modalPreprocess` (axios, AbortController,
+connectivity pre-check, error dialogs) and returns either response data or a
+`MODAL_RESPONSES` sentinel string. **Naming trap: the `modal` prefix on those
+functions is historical (the server first ran on the Modal.com cloud
+platform), not a UI modal; the file was renamed to `server-client.js` but the
+exported names are kept for now.**
 `app/src/services/colorize-service.js` shapes those raw calls into typed
 results for the executor; its `refs` array is the seam for future
 two-reference colorization (length 1 today).

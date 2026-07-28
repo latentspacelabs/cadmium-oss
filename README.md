@@ -63,11 +63,36 @@ Per-component deep dives live in [docs/](docs/README.md).
 
 ---
 
-## Installation
+## Ways to run this
 
-Requires **Python 3.10** and an **NVIDIA GPU with CUDA 12.x** (the model and
-segmentation code depend on `torch_scatter`, `cupy`, and `cucim`, which are
-GPU-only). CPU-only execution is not currently supported.
+There are several entry points, and **most of them need no Python at all**.
+Pick the row that matches what you want to do:
+
+| You want to… | Entry point | What it needs |
+|---|---|---|
+| **Use / develop the desktop app** | `app/` in dev mode — talks to a hosted URL or the bundled Rust sidecar | Node — **no Python, no GPU** |
+| **Serve the ML pipeline locally, Python-free** | the Rust sidecar (`serving/sidecar/`) | a Rust toolchain + the [ONNX models](#onnx-models) |
+| **Run the reference Python server** | `serving.local.server` | Python 3.10 + NVIDIA CUDA 12.x + a torch checkpoint |
+| **One-shot CLI colorize** | `colorize/scripts/infer_local.py` | Python 3.10 + NVIDIA CUDA 12.x + a checkpoint |
+| **Deploy hosted GPU endpoints** | Modal (`serving/modal/`) | Python + a Modal account |
+| **Export ONNX / run parity** | `serving/onnx/` | Python 3.10 + CUDA (dumps need a checkpoint) |
+
+Only the **Python paths** (the bottom four rows) use the CUDA environment in
+[Installation](#installation-python-paths) below — the desktop app and the Rust
+sidecar have their own, lighter prerequisites. To just try the UI, jump to
+[the desktop app](#the-desktop-app-no-python); for local ML without Python, see
+[the Rust sidecar](#python-free-local-serving-the-rust-sidecar).
+
+---
+
+## Installation (Python paths)
+
+The reference Python server, the CLI inference script, the Modal deployments,
+and the ONNX export/parity tooling share one environment: **Python 3.10** and an
+**NVIDIA GPU with CUDA 12.x** (the model and segmentation code depend on
+`torch_scatter`, `cupy`, and `cucim`, which are GPU-only). CPU-only execution of
+the Python stack is not currently supported. The desktop app (Node) and the Rust
+sidecar have their own prerequisites — see [Ways to run this](#ways-to-run-this).
 
 ```bash
 git clone <this-repo> cadmium-oss
@@ -110,7 +135,75 @@ are not part of it. Pretrained artifacts come in two forms:
 
 ---
 
+## ONNX models
+
+Local processing runs two neural nets: the **AnT v2 colorizer** (`/colorize`)
+and the **GapCloser** UDF net (`/segment` AI gap closing). Each ships one
+**universal fp32 model** that runs under any execution provider — including
+plain CPU — plus optional **per-platform fast-path variants** that carry the
+*same weights* but restructure the graph for one accelerator:
+
+| File | Size | Role | Platform | Required |
+|---|---|---|---|---|
+| `ant_v2_fp32.onnx` | 1.4 GB | AnT v2 colorizer, dynamic shapes — the universal workhorse (every EP, incl. CPU) | all | **yes** |
+| `ant_v2_fp32_bucket.onnx` | 1.4 GB | Colorizer with bucket-pinned static shapes — the CoreML fast path | macOS | optional |
+| `ant_v2_fp32_tiledscatter.onnx` | 1.4 GB | Colorizer with scatter-add rewritten as tiled MatMul — the DirectML fast path | Windows | optional |
+| `gap_closer_fp32.onnx` | 498 MB | GapCloser fp32 — the parity anchor + universal CPU path | all | **yes** |
+| `gap_closer_fp32_bucket.onnx` | 498 MB | GapCloser with the tile batch pinned to 24 — the CoreML fast path | macOS | optional |
+| `gap_closer_fp16.onnx` | 249 MB | GapCloser fp16 (`keep_io_types`) — the DirectML fast path | Windows | optional |
+
+Why the variants exist — each is a workaround for one accelerator, not a
+different model:
+
+- **Bucket-pinned** (`*_bucket`): CoreML compiles only static shapes, so the
+  colorizer's shapes are frozen to a corpus-sized bucket and the gap-closer's
+  tile batch is pinned to 24. Feeds larger than the bucket fall back to the
+  dynamic model.
+- **Tiled-scatter** (colorizer, Windows): DirectML has no scatter-add kernel, so
+  on the stock model those ops fall back to CPU and force ~1 GB of PCIe copies
+  per forward (~95% of the DML wall-clock). The tiled MatMul rewrite is fully
+  DML-native and argmax-exact — ~5.7× faster.
+- **fp16** (gap-closer, Windows): fp32 batch-24 OOMs a 16 GB WDDM card; the fp16
+  export keeps float32 I/O (`keep_io_types`) so the sidecar feeds it identically
+  to the fp32 path.
+
+Because the variants only ever *speed up* an accelerator, the two universal
+fp32 models are the only **required** downloads — the sidecar falls back to them
+whenever a variant is absent or the accelerator is unavailable, so nothing
+hard-depends on GPU acceleration. Same weights means argmax/boundary parity
+holds across all of them; the fp16 gap-closer is the sole lossy export, and it
+is boundary-safe (10 flips in 10.5 M pixels, which the trapped-ball segmentation
+downstream absorbs).
+
+The app downloads these from the `models-v1` GitHub release into its models
+directory, verifying size + sha256. **`app/src/util/model-manifest.js` is the
+single source of truth** for filenames, sizes, and hashes; the exports are
+produced by `serving/onnx/` (`export_ant_v2.py`, `export_gap_closer.py`,
+`scatter_to_tiled.py`). See [`docs/colorizer-serving.md`](docs/colorizer-serving.md)
+and [`docs/gap-closer-serving.md`](docs/gap-closer-serving.md) for export
+details, EP workarounds, and measured timings.
+
+---
+
 ## Running locally
+
+### The desktop app (no Python)
+
+The Electron + Vue app is self-contained: drawing, timeline, and `.cdm`
+save/load/export all work with **no backend and no Python**. Only the ML
+features (analyze/colorize/paint-bucket) need a serving backend, and that can be
+either a hosted URL or the bundled Rust sidecar — chosen at runtime in the
+in-app Server Settings dialog.
+
+```bash
+cd app
+npm install
+env -u ELECTRON_RUN_AS_NODE npm run electron:serve
+```
+
+See [`app/README.md`](app/README.md) for the dev-serve gotchas (the
+`ELECTRON_RUN_AS_NODE` unset is load-bearing) and [`docs/app.md`](docs/app.md)
+for the architecture. No step below is required just to run the app.
 
 ### Inference (single reference → target)
 
@@ -183,8 +276,9 @@ curl -X POST http://localhost:8000/segment \
 
 Request/response handling is shared with the Modal stubs via
 `serving/handlers/`, so the two stay in lockstep. These contracts mirror the
-calls the desktop app makes (see `app/src/util/modal.js`); the licensing/proxy
-fields the app sends (`user_id`, `license_key`, …) are simply ignored here.
+calls the desktop app makes (see `app/src/util/server-client.js`); the
+licensing/proxy fields the app sends (`user_id`, `license_key`, …) are simply
+ignored here.
 
 ### Python-free local serving (the Rust sidecar)
 
@@ -198,9 +292,17 @@ a recorded production corpus:
 cd serving/sidecar
 cargo run --release -- \
     --ant-model ant_v2_fp32.onnx --gap-model gap_closer_fp32.onnx --ep auto
+
+# optional accelerator fast paths (see "ONNX models" above); --ep auto picks
+# the accelerator when its variant is supplied, else stays on CPU:
+#   macOS   --ant-model-bucket ant_v2_fp32_bucket.onnx \
+#           --gap-model-bucket gap_closer_fp32_bucket.onnx
+#   Windows --ant-model-tiled  ant_v2_fp32_tiledscatter.onnx \
+#           --gap-model-bucket gap_closer_fp16.onnx
 ```
 
-See `serving/README.md` and `docs/colorizer-serving.md`.
+See [ONNX models](#onnx-models), `serving/README.md`, and
+`docs/colorizer-serving.md`.
 
 ## Running on Modal
 
