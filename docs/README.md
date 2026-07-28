@@ -12,7 +12,3 @@ don't carry their own TODO sections:
 | `colorizer-serving.md` | AnT v2 inference: pipeline, tokenization, ONNX export, parity, EPs, the sidecar |
 | `gap-closer-serving.md` | GapCloser inference: tiling, UDF thresholding, EP results |
 | `todo.md` | centralized index of open TODOs across the repo, by module and priority |
-
-`temp/` holds retired brainstorming/planning docs (architecture.md,
-serving-backends.md). They record decision history but are superseded by the
-docs above and will be deleted; don't link to them from anything permanent.
