@@ -44,7 +44,7 @@ flowchart TB
         routes["/health · /preprocess<br/>/segment · /colorize (/predict)"]
         engine["Engine — engine.rs<br/>GapCloser + AnT v2 ONNX"]
     end
-    gh[("GitHub release<br/>models-v1")]
+    gh[("GitHub release<br/>models-v2")]
     models[["userData/models"]]
     remote[["Hosted server (URL)"]]
 

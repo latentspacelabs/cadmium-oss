@@ -27,11 +27,9 @@ All five phases shipped 2026-07-22: explicit acceleration status in `/health`
 uninstall wipe; the nav-bar Server Settings button (acceleration status lives
 in the Settings modal's per-capability rows); reset button + orphan
 quarantine + cache wipe on manifest change + memoized sha-verify-on-reuse.
-Remaining from the design:
-
-- **P3 — gap-bucket `CACHE_KEY` metadata** (needs a model re-export at the
-  next models-v1 asset update; until then a manifest change wipes the whole
-  CoreML cache as the blunt-but-correct fallback).
+Remaining from the design: _none — the last item (gap-bucket `CACHE_KEY`)
+closed 2026-07-28 with the models-v2 `COREML_CACHE_KEY` re-release; see
+"Recently resolved"._
 
 ---
 
@@ -76,34 +74,42 @@ UI / hot-drawing-path changes that need interactive testing a code sweep can't d
 
 ## serving/sidecar (Rust ONNX sidecar)
 
-No inline markers in the Rust/Python serving source. The items below are open
-code-review findings (deferred) plus the doc roadmap.
-
-### P3 — cleanup / robustness
-- **Gap bucket artifact carries no `CACHE_KEY` metadata + no CoreML-cache
-  prune** — both genuinely gated on the next `models-v1` re-export, not
-  code-fixable here now:
-  - *CACHE_KEY stamp:* `CACHE_KEY` is a `metadata_props` entry baked into the
-    `.onnx` bytes (ORT's CoreML EP reads it; the sidecar only sets
-    `ModelCacheDirectory`). Stamping the gap bucket means re-exporting +
-    republishing the asset and bumping its `sha256`/`bytes` in
-    `model-manifest.js`. Already functionally mitigated: a weight-only republish
-    changes the model sha → `manifestHash` changes → `wipeCoremlCache()` on the
-    next launch, so no stale-cache correctness bug — CACHE_KEY would only make
-    the invalidation *surgical* (recompile just the gap bucket, skip the ~107 s
-    AnT rebuild) instead of the current full wipe.
-  - *Cache prune:* the sidecar never sees ORT's per-model cache subdir names, so
-    the only pure-Rust prune is recency-based — which can evict a still-valid
-    subdir (a cache-hit reload may not bump mtime) and force a spurious ~107 s
-    recompile, worse than the disk it frees. The full `wipeCoremlCache()` on
-    manifest change already bounds growth. Do a *surgical* prune together with
-    CACHE_KEY at the re-export (then subdir identity is known). → [src/serve/engine.rs](../serving/sidecar/src/serve/engine.rs)
+No inline markers in the Rust/Python serving source, and no open items —
+the last one (gap-bucket `CACHE_KEY` + surgical CoreML-cache prune) closed
+2026-07-28; see "Recently resolved".
 
 ---
 
 ## Recently resolved (2026-07)
 
 Closed since this file was created — listed so they aren't re-filed:
+
+- **`COREML_CACHE_KEY` stamp + surgical CoreML-cache prune** — 2026-07-28.
+  Verified on the real EP (ORT 1.29): the CoreML EP prefers a
+  `COREML_CACHE_KEY` metadata_props entry and uses it *verbatim* as the
+  compiled-cache subdir; without one it falls back to hashing the model's
+  file *path* — stable across republishes, hence untrustworthy, hence the
+  old full `wipeCoremlCache()` on every manifest change. Fix: both CoreML
+  bucket models re-released as **models-v2** with a content-derived key
+  (stamped by the new `serving/onnx/stamp_coreml_cache_key.py` —
+  metadata-only patch, graph bit-identical to models-v1, parity carried
+  over; +69/+73 bytes), the key mirrored in `model-manifest.js` as
+  `coremlCacheKey`, and `background.js` now *prunes* cache subdirs no
+  current model owns instead of wiping. A gap-only model bump now keeps the
+  AnT bucket's ~107 s compile (measured 25.8× warm-load speedup on the gap
+  bucket). The four non-CoreML assets were carried to models-v2
+  byte-identical via `upload-models.yml` (which also gained the two gap
+  inputs it was missing). Rule going forward: any bucket re-export re-runs
+  the stamp tool as its final step.
+- **Unsigned distribution (the $0 route)** — decided + shipped 2026-07-28,
+  with the publisher entity winding down: dropped Apple signing +
+  notarization (`mac.identity: null`, hardened runtime off, `notarize.js`
+  deleted) and Windows Authenticode (eSigner CKA step removed; inert
+  without its config hook). CI release-tag signing gates removed so `v*`
+  tags draft unsigned releases. Local unsigned build verified:
+  `Signature=adhoc`, no TeamIdentifier, no hardened-runtime flag.
+  Re-enabling path documented in `build-and-release.md` §4 (SignPath
+  Foundation is the likely route if signing returns).
 
 - **app P2/P3 sweep** — 2026-07-27. Cleared all three P2s and three P3s:
   - *`playerInterval` in reactive Vuex (P2):* it was a setInterval/RAF handle

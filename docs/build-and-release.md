@@ -39,7 +39,7 @@ packaged builds). The copy happens via `extraResources` in
 
 **Models are not bundled.** The ~3.3 GB of ONNX artifacts load from
 `userData/models/` at runtime; the app downloads them on demand from the
-`models-v1` release with size+sha256 verification (see §6). Keeps
+models release (`models-v2`) with size+sha256 verification (see §6). Keeps
 installers small and models upgradable independently of app versions.
 
 **Platform targets: mac arm64 + win x64, deliberately.** The mac target
@@ -136,31 +136,32 @@ is roughly 350–400 billable minutes (~$3–4 in overage); warm runs with
 the Rust cache are about a third. Everything (runs, artifacts, releases)
 carries over unchanged when the repo flips public.
 
-## 4. Signing & notarization
+## 4. Signing & notarization — intentionally none (the $0 route)
 
-Entirely env-driven — no identities or thumbprints in checked-in config,
-and every path degrades to an unsigned build when secrets are absent.
-Secrets live in GitHub repo settings (Settings → Secrets and variables →
-Actions) and are injected only into the packaging steps.
+Cadmium ships **unsigned** (decided 2026-07-28: the publisher entity is
+winding down, and commercial certs are a poor fit for an OSS project). No
+Apple Developer cert, no Authenticode cert, no notarization. What users see:
 
-| Platform | Secret(s) | Consumed by |
-|---|---|---|
-| mac sign | `CSC_LINK` (base64 .p12 of the Developer ID Application cert+key), `CSC_KEY_PASSWORD` | electron-builder natively (imports into a throwaway keychain) |
-| mac notarize | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | `app/notarize.js` (afterSign hook; skips itself when unset) |
-| win sign | `ES_USERNAME`, `ES_PASSWORD`, `ES_TOTP_SECRET` (and `ES_CREDENTIAL_ID` if the account holds several credentials) | the workflow's eSigner CKA step |
+- **mac**: ad-hoc signature, hardened runtime off (`mac.identity: null` in
+  `vue.config.js` / `electron-builder.json`; the `afterSign` notarize hook is
+  deleted). A browser-downloaded copy hits the Gatekeeper wall ("Apple cannot
+  check it for malicious software") — since macOS 15 the override lives in
+  System Settings → Privacy & Security → "Open Anyway", not right-click →
+  Open. A **Homebrew-cask install strips quarantine and opens clean** — make
+  that the recommended install path.
+- **win**: unsigned NSIS installer — SmartScreen shows the "unknown
+  publisher" wall (More info → Run anyway), UAC shows Unknown Publisher, AV
+  false-positive odds run higher than for signed binaries, and
+  managed/enterprise machines that block unsigned executables by policy
+  can't run it at all.
 
-Windows signing goes through **SSL.com eSigner** (remote signing — the
-cert never leaves SSL.com's HSM, as required for OV certs issued since
-mid-2023). The CI step installs eSigner CKA, which surfaces the cloud
-cert in the runner's certificate store, then exports its thumbprint as
-`CADMIUM_WIN_SIGN_SHA1`; `vue.config.js` passes that to electron-builder
-as `win.signtoolOptions.certificateSha1`. On a dev machine with eSigner
-CKA installed, set the env var to the cert's thumbprint yourself. The
-mac side needs no equivalent: without `CSC_LINK`, keychain auto-discovery
-finds a locally installed Developer ID, or falls back to ad-hoc.
-
-The eSigner CKA step follows SSL.com's documented flow but has not had a
-real run yet — expect the first signed Windows build to need a shakedown.
+Re-enabling signing later: unpin `mac.identity`, restore an `afterSign`
+notarize hook (git history: `app/notarize.js`, pre-2026-07-28) plus the CI
+`CSC_LINK` plumbing; the Windows eSigner CKA step is likewise in git
+history — though **SignPath Foundation** (free code signing for OSS,
+signpath.org) is the better fit than a paid SSL.com cert if signing
+returns. Timestamped signatures on the previously signed releases stay
+valid regardless of any cert lapse.
 
 ## 5. App releases & auto-update
 
@@ -171,8 +172,8 @@ app's `app-update.yml` — that is the feed the in-app electron-updater polls.
 CI builds with `--publish never`, so publishing stays the manual
 review-then-publish step; the updater only sees *published, non-draft*
 releases (and on a private repo it would need a token — moot once public).
-Keep the `models-v1` release un-"Latest" so the updater never mistakes it
-for an app release.
+Keep the models releases (`models-v2`, and `models-v1` before it)
+un-"Latest" so the updater never mistakes them for app releases.
 
 Install identity (docs/serving-setup-design.md, Phase 3): the app records
 every legitimate version transition in `<userData>/setup-ledger.json`. The
@@ -186,8 +187,11 @@ fresh user.
 
 ## 6. Model artifacts
 
-The ONNX files ship as assets of the hand-managed **`models-v1`** GitHub
-Release (the tag doesn't match `v*`, so it never triggers app builds):
+The ONNX files ship as assets of the hand-managed **`models-v2`** GitHub
+Release (the tag doesn't match `v*`, so it never triggers app builds).
+models-v2 carries the same weights as models-v1; the two CoreML bucket
+models were re-released with a `COREML_CACHE_KEY` metadata stamp (below),
+the other four assets were carried forward byte-identical:
 
 - `ant_v2_fp32.onnx` (1.39 GB) — AnT colorizer, dynamic shapes. Required
   everywhere; the universal export every EP can run.
@@ -204,6 +208,22 @@ Release (the tag doesn't match `v*`, so it never triggers app builds):
 - `gap_closer_fp32_bucket.onnx` (0.50 GB) — batch-24-pinned CoreML fast path
   for `/segment` gap closing (same weights, pinned batch dim). Optional,
   macOS-only (`platform: 'darwin'`).
+- `gap_closer_fp16.onnx` (0.25 GB) — fp16 DirectML fast path for `/segment`
+  gap closing (`keep_io_types`, so it's fed like the fp32 path; fp32
+  batch-24 OOMs a 16 GB WDDM card). Optional, Windows-only.
+
+**`COREML_CACHE_KEY` (CoreML bucket models only).** ORT's CoreML EP keys
+its compiled-model cache off a `COREML_CACHE_KEY` metadata_props entry when
+present — used VERBATIM as the cache subdir name — and otherwise falls back
+to hashing the model's file *path*, which never changes across republishes
+and so can't be trusted. Both bucket models carry a content-derived key
+(stamped by `serving/onnx/stamp_coreml_cache_key.py` — metadata-only, the
+graph is bit-identical to the un-stamped export, so parity carries over),
+mirrored in the manifest as `coremlCacheKey` so `background.js` can prune
+stale cache subdirs surgically instead of full-wiping (a gap-only model
+bump keeps the AnT bucket's ~107 s compile). **Any future bucket re-export
+must re-run the stamp tool as its final step** — the key derives from the
+pre-stamp file sha, so it changes exactly when the weights do.
 
 **Torch checkpoints (`checkpoints-v1`)**: the training checkpoints behind
 those exports ship as a second hand-managed release (also never marked
@@ -226,13 +246,16 @@ swapping later is a one-line base-URL change in the manifest).
 **Publishing the artifacts (default: on a runner).** These files are
 multi-GB, so the upload should never run from a laptop uplink. The
 `upload-models.yml` workflow (`gh workflow run upload-models.yml -f
-ant_url=… -f ant_bucket_url=… -f ant_tiled_url=… -f gap_url=…`) runs on a
-GitHub runner:
+ant_url=… -f ant_bucket_url=… -f ant_tiled_url=… -f gap_url=…
+-f gap_bucket_url=… -f gap_fp16_url=…`) runs on a GitHub runner:
 it fetches each file from the URL you give it (stage them somewhere fast —
 an S3 presigned URL, or an HTTP source on the training host), verifies
 size + sha256 against the manifest, and uploads to `MODELS_RELEASE_TAG`
 (creating the release if needed). Leave a URL blank to skip a file — e.g.
-to re-upload only the two AnT files. `serving/tools/upload_models_release.sh
+to re-upload only the two AnT files. Files carried forward unchanged to a
+new tag can use the previous tag's public download URL as the source (how
+models-v2 inherited models-v1's four unchanged assets at datacenter
+speed). `serving/tools/upload_models_release.sh
 <models-dir>` is the local fallback (same manifest verification) for when
 you already have the bytes on a fast connection.
 
@@ -244,9 +267,9 @@ planning in `util/model-download-core.js`) streams each file to
 then renames onto the final name — the sidecar's missing-file probe only
 ever sees fully verified files, and its failed-missing state self-clears
 on the ensure that runs after a successful download. Policy: required
-models everywhere, plus each platform's optional fast-path export — the
-bucket-pinned AnT on macOS (CoreML), the tiled-scatter AnT on Windows
-(DirectML). On a Windows box with no DirectX-12 device the sidecar falls
+models everywhere, plus each platform's optional fast-path exports — the
+bucket-pinned AnT + gap models on macOS (CoreML), the tiled-scatter AnT +
+fp16 gap on Windows (DirectML). On a Windows box with no DirectX-12 device the sidecar falls
 back to the stock model on the CPU EP, so the tiled model is a pure
 accelerator — nothing breaks without it. Progress streams over
 `sidecar:models-progress` IPC. Downloads

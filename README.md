@@ -125,7 +125,7 @@ This repo ships **inference code only** — training code and data pipelines
 are not part of it. Pretrained artifacts come in two forms:
 
 - **ONNX models** (what the desktop app uses): downloaded automatically from
-  the `models-v1` GitHub release into the app's models directory, with
+  the `models-v2` GitHub release into the app's models directory, with
   size + sha256 verification (`app/src/util/model-manifest.js`).
 - **Torch checkpoints** (for the Python servers and the ONNX export/parity
   tooling): Hugging Face–style directories loadable via
@@ -175,7 +175,7 @@ holds across all of them; the fp16 gap-closer is the sole lossy export, and it
 is boundary-safe (10 flips in 10.5 M pixels, which the trapped-ball segmentation
 downstream absorbs).
 
-The app downloads these from the `models-v1` GitHub release into its models
+The app downloads these from the `models-v2` GitHub release into its models
 directory, verifying size + sha256. **`app/src/util/model-manifest.js` is the
 single source of truth** for filenames, sizes, and hashes; the exports are
 produced by `serving/onnx/` (`export_ant_v2.py`, `export_gap_closer.py`,
