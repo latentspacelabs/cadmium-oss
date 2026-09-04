@@ -13,7 +13,14 @@
 #     -f ant_url='https://…/ant_v2_fp32.onnx?…' \
 #     -f ant_bucket_url='https://…/ant_v2_fp32_bucket.onnx?…' \
 #     -f ant_tiled_url='https://…/ant_v2_fp32_tiledscatter.onnx?…' \
-#     -f gap_url='https://…/gap_closer_fp32.onnx?…'
+#     -f gap_url='https://…/gap_closer_fp32.onnx?…' \
+#     -f gap_bucket_url='https://…/gap_closer_fp32_bucket.onnx?…' \
+#     -f gap_fp16_url='https://…/gap_closer_fp16.onnx?…'
+#
+# Unchanged files carried forward to a NEW release tag can use the previous
+# tag's public download URL as the source — the runner copies them over at
+# datacenter speed (this is how models-v2 inherited the four files models-v1
+# already had).
 name: Upload model artifacts to the release
 
 on:
@@ -30,6 +37,12 @@ on:
         required: false
       gap_url:
         description: "URL to gap_closer_fp32.onnx (blank = skip)"
+        required: false
+      gap_bucket_url:
+        description: "URL to gap_closer_fp32_bucket.onnx (blank = skip)"
+        required: false
+      gap_fp16_url:
+        description: "URL to gap_closer_fp16.onnx (blank = skip)"
         required: false
 
 permissions:
@@ -50,6 +63,8 @@ jobs:
           ANT_BUCKET_URL: ${{ inputs.ant_bucket_url }}
           ANT_TILED_URL: ${{ inputs.ant_tiled_url }}
           GAP_URL: ${{ inputs.gap_url }}
+          GAP_BUCKET_URL: ${{ inputs.gap_bucket_url }}
+          GAP_FP16_URL: ${{ inputs.gap_fp16_url }}
         run: |
           set -euo pipefail
           MANIFEST=app/src/util/model-manifest.js
@@ -61,6 +76,8 @@ jobs:
             [ant_v2_fp32_bucket.onnx]="$ANT_BUCKET_URL"
             [ant_v2_fp32_tiledscatter.onnx]="$ANT_TILED_URL"
             [gap_closer_fp32.onnx]="$GAP_URL"
+            [gap_closer_fp32_bucket.onnx]="$GAP_BUCKET_URL"
+            [gap_closer_fp16.onnx]="$GAP_FP16_URL"
           )
 
           # "file sha256 bytes" per manifest entry.

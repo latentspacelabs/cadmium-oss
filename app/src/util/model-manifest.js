@@ -17,7 +17,7 @@
  * (the parity goldens are anchored to these bytes).
  */
 
-const MODELS_RELEASE_TAG = 'models-v1';
+const MODELS_RELEASE_TAG = 'models-v2';
 const MODELS_BASE_URL =
   `https://github.com/latentspacelabs/cadmium-oss/releases/download/${MODELS_RELEASE_TAG}`;
 
@@ -36,9 +36,16 @@ const MODEL_FILES = [
     // CPU session) — the CoreML fast path
     // (--ant-model-bucket). Optional and macOS-only: without it the sidecar
     // still serves every request via the dynamic model.
+    //
+    // Carries a COREML_CACHE_KEY metadata_props entry (stamped by
+    // serving/onnx/stamp_coreml_cache_key.py, derived from the pre-stamp
+    // file sha256) that ORT's CoreML EP uses verbatim as the compiled-model
+    // cache subdirectory. coremlCacheKey mirrors it so the app can prune
+    // stale cache entries surgically instead of wiping the whole cache.
     file: 'ant_v2_fp32_bucket.onnx',
-    bytes: 1388609979,
-    sha256: 'af4a4194362fd6ef81d6df2d8d653372da3265471aa19dfceaab5f97c443e30d',
+    bytes: 1388610048,
+    sha256: 'babc96305b0aabdcfb6d6901c46f4493d82059cf9546c854c9799590e4bab4a3',
+    coremlCacheKey: 'antv2fp32bucketaf4a4194362fd6ef81d6df2d8d653372',
     required: false,
     platform: 'darwin',
   },
@@ -74,9 +81,14 @@ const MODEL_FILES = [
     // gap_closer_fp32.onnx, only the input shape differs. Optional and
     // macOS-only: without it (or off macOS) gap closing runs one tile at a
     // time on the CPU EP (~20s on high-res drawings vs ~1.3s batched CoreML).
+    //
+    // COREML_CACHE_KEY-stamped, like the AnT bucket above — closing the
+    // "gap bucket has no CACHE_KEY" gap that used to force a full CoreML
+    // cache wipe (and the ~107s AnT recompile) on every manifest change.
     file: 'gap_closer_fp32_bucket.onnx',
-    bytes: 497519867,
-    sha256: '1f1966b41c04a8b406ff8d16c54cbfa3354e5aec3d196507861f211beeb36e0d',
+    bytes: 497519940,
+    sha256: '6e5347a74e161558b055047dba65453ed532b556eaacc038a9c2e9f580c96090',
+    coremlCacheKey: 'gapcloserfp32bucket1f1966b41c04a8b406ff8d16c54cbfa3',
     required: false,
     platform: 'darwin',
   },

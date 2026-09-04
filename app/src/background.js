@@ -190,10 +190,12 @@ function reconcileInstallState() {
   }
   if (decision.writeLedger) writeSetupLedger(decision.writeLedger);
   if (decision.manifestChanged) {
-    // Compiled-model caches are keyed to model bytes we can't fully trust
-    // (the gap bucket has no CACHE_KEY yet) — wipe on manifest change. Cost:
-    // one background recompile behind the "Optimizing…" chip.
-    wipeCoremlCache();
+    // The CoreML bucket models carry a content-derived COREML_CACHE_KEY
+    // (models-v2+), which ORT uses verbatim as the compiled-cache subdir —
+    // so a changed model can never be served from a stale compile. Prune
+    // subdirs no current model owns instead of wiping the whole cache: a
+    // gap-only model bump keeps the AnT bucket's ~107s compile.
+    pruneCoremlCache();
     notifyModelsChanged();
   }
   // Models-dir hygiene: quarantine junk now; the deep sha verification runs
@@ -242,14 +244,24 @@ function quarantineModelOrphans() {
   });
 }
 
-function wipeCoremlCache() {
+function pruneCoremlCache() {
   const { coremlCacheDir } = getSidecarManager().paths;
+  const valid = new Set(MODEL_FILES.map((m) => m.coremlCacheKey).filter(Boolean));
+  let entries;
   try {
-    fs.rmSync(coremlCacheDir, { recursive: true, force: true });
-    console.log('[model-hygiene] CoreML cache cleared (model manifest changed)');
-  } catch (e) {
-    console.error('[model-hygiene] cache wipe failed:', e);
+    entries = fs.readdirSync(coremlCacheDir);
+  } catch {
+    return; // no cache yet — nothing to prune
   }
+  entries.forEach((name) => {
+    if (valid.has(name)) return;
+    try {
+      fs.rmSync(path.join(coremlCacheDir, name), { recursive: true, force: true });
+      console.log(`[model-hygiene] pruned stale CoreML cache entry: ${name}`);
+    } catch (e) {
+      console.error('[model-hygiene] cache prune failed:', e);
+    }
+  });
 }
 
 function sha256FileMatches(p, expected) {
