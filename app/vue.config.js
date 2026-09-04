@@ -57,10 +57,8 @@ module.exports = {
         // and passed to electron-builder
         //
         // Explicit bundle/app identity (defaults to com.electron.cadmium
-        // otherwise). Must match the appBundleId in notarize.js; set BEFORE
-        // the first signed/notarized release — signing ties the app's
-        // Gatekeeper/notarization identity to this id, and changing it later
-        // makes updates look like a different application.
+        // otherwise). electron-updater keys updates off this id, so changing it
+        // later makes updates look like a different application — keep it stable.
         appId: 'com.latentspacelabs.cadmium',
         //
         // Auto-update feed: electron-builder bakes this into the packaged
@@ -119,13 +117,15 @@ module.exports = {
               filter: ['libonnxruntime.*.dylib'],
             },
           ],
-          // Ad-hoc-signed local builds (no Developer ID cert in the env)
-          // cannot use the hardened runtime: library validation rejects the
-          // teamless main-binary/framework pairing at dyld time on current
-          // macOS. Production builds (real cert + notarization) keep it on.
-          ...(process.env.CADMIUM_UNSIGNED_LOCAL_BUILD === '1'
-            ? { hardenedRuntime: false }
-            : {}),
+          // Unsigned distribution ($0 route — no Apple Developer cert):
+          // ad-hoc signature only (identity: null) with the hardened runtime
+          // OFF (ad-hoc + hardened runtime fails library validation at dyld
+          // time), and no notarization (the afterSign hook is gone). Users
+          // get a Gatekeeper wall on first launch of a downloaded copy —
+          // Homebrew-cask installs strip quarantine and open clean. See
+          // docs/build-and-release.md.
+          identity: null,
+          hardenedRuntime: false,
         },
         win: {
           extraResources: [
@@ -145,21 +145,11 @@ module.exports = {
               to: 'sidecar/DirectML.dll',
             },
           ],
-          // Windows signing goes through SSL.com eSigner CKA: the cert never
-          // leaves SSL.com's HSM; CKA exposes it in the machine's cert store
-          // and the signer selects it by thumbprint. CI loads the cert and
-          // exports the thumbprint as CADMIUM_WIN_SIGN_SHA1 (see
-          // .github/workflows/ci.yml); on a dev machine with eSigner CKA
-          // installed, set it to the cert's thumbprint yourself. Configured
-          // here, not via -c. CLI overrides, which break the vue-cli
-          // plugin's config merge. Unset -> unsigned build.
-          ...(process.env.CADMIUM_WIN_SIGN_SHA1
-            ? {
-                signtoolOptions: {
-                  certificateSha1: process.env.CADMIUM_WIN_SIGN_SHA1,
-                },
-              }
-            : {}),
+          // Unsigned distribution ($0 route — no Authenticode cert). The
+          // installer ships unsigned: Windows shows a SmartScreen "unknown
+          // publisher" wall that users click through (More info -> Run
+          // anyway). See docs/build-and-release.md for the trade-offs and
+          // the SignPath Foundation option if signing returns.
         },
       },
     },

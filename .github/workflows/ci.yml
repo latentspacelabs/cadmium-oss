@@ -7,22 +7,15 @@
 #     GITHUB_TOKEN (public, or same-org private with access). actions/checkout
 #     rewrites the git@github.com: submodule URLs to token-authenticated https.
 #
-# Signing/notarization is driven entirely by repo secrets (Settings ->
-# Secrets and variables -> Actions). With no secrets configured, packaging
-# still succeeds and produces UNSIGNED artifacts (mac: ad-hoc signature with
-# the hardened runtime off — runs on a dev machine, not distributable;
-# win: unsigned installer).
-#   mac sign:    CSC_LINK (base64 .p12 export of the Developer ID Application
-#                cert+key), CSC_KEY_PASSWORD (consumed by electron-builder)
-#   mac notarize: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-#                (consumed by app/notarize.js; skipped when unset)
-#   win sign:    SSL.com eSigner (remote signing; the cert never leaves
-#                SSL.com's HSM). The job installs eSigner CKA, which exposes
-#                the cloud cert in the runner's certificate store, and hands
-#                electron-builder its thumbprint. Secrets: ES_USERNAME,
-#                ES_PASSWORD, ES_TOTP_SECRET (the eSigner OTP seed, needed
-#                for non-interactive signing), and optionally ES_CREDENTIAL_ID
-#                (only if the account holds more than one signing credential).
+# Releases ship UNSIGNED by design (the $0 open-source route — see
+# docs/build-and-release.md): mac gets an ad-hoc signature with the hardened
+# runtime off and no notarization (Gatekeeper wall on first launch of a
+# downloaded copy; Homebrew-cask installs open clean), win an unsigned
+# installer (SmartScreen "unknown publisher", click-through-able). To
+# re-enable signing later (e.g. SignPath Foundation for win, an Apple
+# Developer cert for mac): unpin mac.identity (null in vue.config.js and
+# electron-builder.json), restore an afterSign notarize hook, and resurrect
+# the CSC_LINK plumbing + eSigner CKA step from git history (pre-2026-07-28).
 #
 # Not yet in CI: the verify_* golden harnesses (the multi-GB golden dirs have
 # no durable home yet) and EP runtime checks (CoreML/DirectML need real
@@ -108,51 +101,15 @@ jobs:
       - name: npm ci
         working-directory: app
         run: npm ci
-      # A v* tag build must never draft an unsigned/un-notarized release; the
-      # unsigned fallback below is for push builds only. Absent secrets here
-      # usually mean the repo dropped out of the org secrets' "selected
-      # repositories" list (this happens when the repo is recreated).
-      - name: Require signing secrets on release tags
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          missing=""
-          [ -z "$CSC_LINK" ] && missing="$missing CSC_LINK"
-          [ -z "$APPLE_ID" ] && missing="$missing APPLE_ID"
-          [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] && missing="$missing APPLE_APP_SPECIFIC_PASSWORD"
-          [ -z "$APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
-          if [ -n "$missing" ]; then
-            echo "::error::Release tag build, but mac signing/notarization secrets are missing:$missing"
-            exit 1
-          fi
+      # Builds are intentionally unsigned (the $0 route): mac.identity is
+      # pinned null in the builder config, so packaging always produces an
+      # ad-hoc-signed, un-notarized app — release tags included. See the
+      # header comment.
       - name: Package
         working-directory: app
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ -z "$CSC_LINK" ]; then
-            echo "No CSC_LINK secret - producing an unsigned build"
-            # GitHub sets an absent secret to an EMPTY STRING, not unset;
-            # electron-builder treats a defined-but-empty CSC_LINK as "a cert
-            # path was given" and path.resolve('')-> cwd, which is not a file.
-            # Unset them so it falls back to an ad-hoc signature instead.
-            unset CSC_LINK CSC_KEY_PASSWORD
-            # An ad-hoc build can't be notarized: with the APPLE_* secrets
-            # set but no signing cert, notarytool 403s and fails the job.
-            # Skip notarization entirely for unsigned builds.
-            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            export CADMIUM_UNSIGNED_LOCAL_BUILD=1
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-          fi
-          npm run electron:build -- --mac --arm64 --publish never
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run electron:build -- --mac --arm64 --publish never
       # *.yml = electron-updater feed metadata (latest-mac.yml), needed as a
       # release asset for in-app updates.
       - uses: actions/upload-artifact@v4
@@ -169,12 +126,6 @@ jobs:
     name: package windows (x64)
     needs: [sidecar-test, app-test]
     runs-on: windows-2022
-    # Exposed at job level so the eSigner step's `if` can test env.ES_USERNAME
-    # — the `secrets` context is not available in `if` conditions.
-    env:
-      ES_USERNAME: ${{ secrets.ES_USERNAME }}
-      ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
-      ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -206,79 +157,15 @@ jobs:
       - name: npm ci
         working-directory: app
         run: npm ci
-      # Same rule as package-mac: a v* tag build must never draft an unsigned
-      # installer, while push builds may skip signing.
-      - name: Require signing secrets on release tags
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          ES_PW: ${{ secrets.ES_PASSWORD }}
-          ES_TOTP: ${{ secrets.ES_TOTP_SECRET }}
-        run: |
-          missing=""
-          [ -z "$ES_USERNAME" ] && missing="$missing ES_USERNAME"
-          [ -z "$ES_PW" ] && missing="$missing ES_PASSWORD"
-          [ -z "$ES_TOTP" ] && missing="$missing ES_TOTP_SECRET"
-          if [ -n "$missing" ]; then
-            echo "::error::Release tag build, but eSigner secrets are missing:$missing"
-            exit 1
-          fi
-      # SSL.com eSigner CKA (documented flow: install silently, configure
-      # with account credentials + TOTP seed, load the cert into the store,
-      # then read its thumbprint). Skipped when the secrets are absent —
-      # the package step then produces an unsigned installer.
-      - name: Load SSL.com eSigner cert
-        if: ${{ env.ES_USERNAME != '' }}
-        shell: powershell
-        run: |
-          # Pinned GitHub release asset: the ssl.com landing-page URL serves
-          # HTML, not the installer ("not a valid application for this OS").
-          # v1.0.8 + the post-install sequence mirror SSLcom/esigner-sample.
-          Invoke-WebRequest -OutFile eSignerCKA.zip "https://github.com/SSLcom/eSignerCKA/releases/download/v1.0.8/SSL.COM-eSigner-CKA_1.0.8.zip"
-          Expand-Archive eSignerCKA.zip -DestinationPath eSignerCKA-setup -Force
-          $setup = Get-ChildItem eSignerCKA-setup -Recurse -Filter *.exe | Select-Object -First 1
-          if (-not $setup) { throw "eSigner CKA zip contained no installer exe" }
-          New-Item -ItemType Directory -Force -Path C:\esigner | Out-Null
-          Start-Process $setup.FullName -ArgumentList '/CURRENTUSER','/VERYSILENT','/SUPPRESSMSGBOXES','/DIR=C:\esigner' -Wait
-          # Register the Key Storage Provider. Without RegisterKSP +
-          # eSignerCSP.Config the cert imports but its cloud-backed private
-          # key is invisible to signtool ("After Private Key filter, 0 certs
-          # were left").
-          foreach ($vc in @("C:\esigner\vc_redist.x86.exe", "C:\esigner\vc_redist.x64.exe")) {
-            if (Test-Path $vc) { Start-Process $vc -ArgumentList "/install","/q","/norestart" -Wait }
-          }
-          C:\esigner\RegisterKSP.exe | Out-Null
-          C:\esigner\eSignerCSP.Config.exe | Out-Null
-          C:\esigner\eSignerCKATool.exe config -mode product -user "$env:ES_USERNAME" -pass "$env:ES_PASSWORD" -totp "$env:ES_TOTP_SECRET" -key "C:\esigner\master.key" -r
-          C:\esigner\eSignerCKATool.exe unload
-          C:\esigner\eSignerCKATool.exe load
-          $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-          if (-not $cert) { throw "eSigner CKA loaded no code-signing cert" }
-          echo "CADMIUM_WIN_SIGN_SHA1=$($cert.Thumbprint)" >> $env:GITHUB_ENV
-          # electron-builder's bundled signtool (winCodeSign cache) is too old
-          # to sign with KSP-provided keys like eSigner CKA's ("No certificates
-          # were found that met all the given criteria"); use the runner's
-          # Windows SDK signtool instead — electron-builder honors SIGNTOOL_PATH.
-          $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $st) { throw "no Windows SDK signtool.exe found on runner" }
-          echo "SIGNTOOL_PATH=$($st.FullName)" >> $env:GITHUB_ENV
+      # Builds are intentionally unsigned (the $0 route) — the SSL.com
+      # eSigner CKA signing step that used to live here is in git history
+      # (pre-2026-07-28) if Windows signing ever returns.
       # win-node-env (a dependency) makes the NODE_ENV=... script prefix work
       # under cmd.exe, so the same npm script runs on Windows unchanged.
-      # CADMIUM_WIN_SIGN_SHA1 (set by the step above, or absent) is picked up
-      # by vue.config.js builderOptions.
       - name: Package
         working-directory: app
         shell: bash
         run: npm run electron:build -- --win --x64 --publish never
-      # KSP logs make eSigner failures diagnosable after the runner is gone.
-      - name: Upload eSigner KSP logs
-        if: ${{ always() && env.ES_USERNAME != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: esigner-ksp-logs
-          path: C:\Users\runneradmin\AppData\Roaming\eSignerCKA\KSP
-          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: cadmium-win-x64
