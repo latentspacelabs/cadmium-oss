@@ -1,15 +1,13 @@
 # Cadmium — centralized TODO
 
 The **single home** for outstanding work across the repo: inline `TODO`/
-`FIXME` markers in the source, the roadmap items that used to live in
-per-component "Remaining TODOs" doc sections (folded in here 2026-07-22; the
-component docs no longer carry TODO sections), and open findings from the
-2026-07 serving-backend code review that were deferred rather than fixed.
+`FIXME` markers in the source plus roadmap items. Only open work lives here —
+the history of closed items is in git (`git log -p docs/todo.md`).
 
 **Split by module, ordered by priority within each:**
 
 - **P1 — correctness / potential bug.** Wrong output, crash, or data loss under some input.
-- **P2 — performance / resource.** Works, but wastes memory/CPU or a hot path.
+- **P2 — performance / resource / project risk.** Works, but wastes something or exposes the project to loss.
 - **P3 — cleanup / refactor / rename.** Maintainability; no behavior change.
 - **P4 — future / aspirational.** New capability, not a defect.
 
@@ -19,45 +17,105 @@ it points at.
 
 ---
 
-### Serving setup & acceleration — [serving-setup-design.md](serving-setup-design.md)
+## release / cross-cutting
 
-All five phases shipped 2026-07-22: explicit acceleration status in `/health`
-+ Server Settings; Serving Profile (roles, resilient downloads,
-`missingAccel`); setup ledger + reconciler + GitHub auto-update feed + NSIS
-uninstall wipe; the nav-bar Server Settings button (acceleration status lives
-in the Settings modal's per-capability rows); reset button + orphan
-quarantine + cache wipe on manifest change + memoized sha-verify-on-reuse.
-Remaining from the design: _none — the last item (gap-bucket `CACHE_KEY`)
-closed 2026-07-28 with the models-v2 `COREML_CACHE_KEY` re-release; see
-"Recently resolved"._
+### P1 — ship v1.5.7, the first unsigned release (now unblocked)
+
+The mac-cert blocker dissolved by decision (the unsigned $0 route,
+2026-07-28), so the release train can move. On board since v1.5.6: the
+models-v2 manifest + surgical CoreML-cache prune, the unsigned build config,
+the DirectML.dll fix, the nav-bar Server Settings button, and the July
+P1/P2 sweeps.
+
+- **Pre-flight — the signed→unsigned auto-update transition.** The record is
+  ambiguous on whether v1.5.3–v1.5.6 actually shipped Developer-ID-signed
+  (the CI-shakedown note said "signed/notarized ran green"; the later
+  "first signed release" framing said no cert existed). If any published
+  release WAS signed, its installed base may refuse an unsigned v1.5.7
+  (mac: Squirrel validates the update's signature against the running app;
+  win: electron-updater's publisher check) and those users need a one-time
+  manual re-download. Check `codesign -dv` on a downloaded v1.5.6 artifact
+  before tagging, and write the release notes accordingly.
+- **Unsigned-install UX docs, shipped WITH the release:** README + release
+  notes say the warnings are expected and how to get through them
+  (macOS 15+: System Settings → Privacy & Security → "Open Anyway";
+  win: SmartScreen → More info → Run anyway).
+- **Windows installer shakedown on real hardware** (folds in the deferred
+  DirectML end-to-end confirm): install packaged v1.5.7 on the T4 rig,
+  SmartScreen click-through, `/health` reports `segment.active=dml` and
+  `colorize.active=dml`, colorize a real drawing.
+- Keep `models-v1` assets published — pre-v1.5.7 installs pin them by
+  sha; deleting the release strands their model downloads.
+
+### P2 — distribution channels for an unsigned app
+
+- **Homebrew cask** — build-and-release §4 now calls the cask the
+  recommended mac install path, and it doesn't exist yet (brew strips
+  quarantine, so cask installs skip the Gatekeeper wall entirely). Needs a
+  published, non-draft release with a stable DMG URL; homebrew/cask has
+  notability criteria, so a project tap (`latentspacelabs/homebrew-tap`)
+  is the always-works fallback.
+- **winget manifest** — the analogous trusted channel on Windows (does not
+  remove SmartScreen, but is where technical users look first).
+
+### P2 — hosted-backend end-of-life plan (entity wind-down) — needs decisions
+
+- What do shipped builds point at when the hosted server goes away:
+  default-URL behavior (today the app falls back to
+  `http://localhost:8000`), in-app messaging for dead hosted URLs, and a
+  self-hosting pointer (`serving.local.server` / the embedded sidecar).
+- Strip the commercial-era licensing/proxy fields (`user_id`,
+  `license_key`, …) from `server-client.js` requests — every OSS backend
+  ignores them, and a clean single-license posture also helps a SignPath
+  Foundation application (their terms exclude commercially dual-licensed
+  projects).
+
+### P2 — durable home for goldens + parity artifacts (wallace decommission risk)
+
+The multi-GB `verify_*` golden dirs and parity bundles live as
+machine-local scratch on wallace; segmentation golden sets have the same
+problem. If wallace is decommissioned in the wind-down they are gone and
+the sidecar's byte-exact gates can never run again. Publish them durably (a
+`goldens-v1` release — mind the 2 GiB/file cap — or S3), and while there,
+verify the `checkpoints-v1` release truly carries both checkpoint assets
+(wallace still holds a local staging dir). Durable goldens also unblock
+running the verify harnesses in CI (ci.yml header: "no durable home yet").
+
+### P4 — future
+
+- **SignPath Foundation application**, if signing ever returns: free OSS
+  code signing that needs no legal entity; check the
+  no-commercial-dual-licensing criterion first. build-and-release §4
+  records the full re-enable path.
+- **Web-app spike**: browser UI against a hosted GPU backend. The
+  architecture already splits at the HTTP contract (`server-client.js`
+  talks to any backend), so the UI port is bounded — but on-device
+  inference does not survive the move (no sidecar in a browser; ORT-Web/
+  WebGPU for a 1.4 GB custom-op model is a research project), and the trade
+  is install friction for a usage-scaled GPU bill.
 
 ---
 
 ## app (Electron / Vue renderer + main)
 
-### P2 — performance
-_All clear (2026-07-27 sweep). `playerInterval` moved out of reactive Vuex; the
-segmentation-checksum and RadialGradient items were stale (segmap caching already
-lives at the callers via content-addressed filenames; the RadialGradient path is
-commented out, superseded by `stampBrushDraw`). See "Recently resolved"._
+### P3 — deferred with cause
 
-### P3 — cleanup / rename
+Large refactors with no live bug paying for them, a persisted-key rename
+that needs a migration, and UI / hot-drawing-path changes that need
+interactive testing a code sweep can't do. With the project in
+low-maintenance OSS mode, the first three are candidates to **retire
+outright** rather than keep as standing debt:
 
-The 2026-07-27 sweep cleared the dead-code removal, the `modal.js` →
-`server-client.js` rename, and the CoreML-cache double-count (see "Recently
-resolved"). The rest below are **deferred with cause**: large refactors with no
-live bug paying for them, a persisted-key rename that needs a migration, and
-UI / hot-drawing-path changes that need interactive testing a code sweep can't do.
-
-- The big storage flip (deliberately deferred): the v2 `.cdm` document section is derived-and-validated only; `state.layers` + ghosts + `saveState` remain the source of truth. Flipping (Document primary, `saveState` dropped, ghost color records → real Cels) is ~100+ read-site churn with no live bug paying for it. Entry point when it happens: the seam + validation warning in `LOAD_FILE` ([actions.js:703](../app/src/store/actions.js#L703)). → [docs/temp/architecture.md:283](temp/architecture.md#L283)
-- Legacy job flags: the `*InProgress` / `*CanceledByUser` / progress keys still exist as JobRunner-maintained mirrors, and cancellation still bridges through `SET_*_CANCELED_BY_USER` commits ([actions.js:496](../app/src/store/actions.js#L496)). Deleting the mirrors means porting every reader (waiting screens, cancel buttons, menu state) to observe the runner — pure refactor, no live bug.
-- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead (it is the playhead, not a selection). **Deferred:** ~74 refs across 10 files, and `selectedFrame` *is* the persisted `.cdm` key — the rename needs a `loadcdm` migration (`playhead = selectedFrame`) or old files silently lose the saved playhead position, plus word-boundary care to avoid colliding with the real multi-select concept (`selectedFrames`, `*_FOR_SELECTED_FRAME`). Its own PR, not a sweep. → [store/state.js:35](../app/src/store/state.js#L35), [store/getter-types.js:5](../app/src/store/getter-types.js#L5)
-- Layer choice hard-coded where it should follow the last-active layer. **Deferred:** a drawing-behavior change in the hot canvas path; needs interactive testing. → [components/MainPane.vue:1349](../app/src/components/MainPane.vue#L1349), [util/KeyHandler.js:219](../app/src/util/KeyHandler.js#L219)
-- Duplicated mouse-move block. **Deferred:** extracting shared setup from the live drawing path; same interactive-test gap. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
-- Sidebar height hack (flexbox). **Deferred:** CSS hack, needs visual verification. → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
-- Colour-wheel timer hack. **Deferred:** timing hack, needs interactive verification. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
+- The big storage flip: the v2 `.cdm` document section is derived-and-validated only; `state.layers` + ghosts + `saveState` remain the source of truth. Flipping (Document primary, `saveState` dropped, ghost color records → real Cels) is ~100+ read-site churn. Do it only if the `LOAD_FILE` validation warning ([actions.js:703](../app/src/store/actions.js#L703)) ever fires in the wild. (Design notes: `docs/temp/architecture.md`, deleted 2026-07-28 — in git history.)
+- Legacy job flags: the `*InProgress` / `*CanceledByUser` / progress keys survive as JobRunner-maintained mirrors, and cancellation still bridges through `SET_*_CANCELED_BY_USER` commits ([actions.js:496](../app/src/store/actions.js#L496)). Deleting the mirrors means porting every reader — pure refactor, no live bug.
+- Rename `selectedFrame`/`SELECTED_FRAME_NR` → playhead: ~74 refs across 10 files AND `selectedFrame` is the persisted `.cdm` key, so it needs a `loadcdm` migration or old files silently lose the saved playhead. Risk exceeds value at this point — retire unless a document-schema change forces a migration anyway. → [store/state.js:35](../app/src/store/state.js#L35)
+- Layer choice hard-coded where it should follow the last-active layer — a small UX behavior fix; needs an interactive-testing session. → [components/MainPane.vue:1349](../app/src/components/MainPane.vue#L1349), [util/KeyHandler.js:219](../app/src/util/KeyHandler.js#L219)
+- Duplicated mouse-move block — extraction from the live drawing path; same interactive-test gap. → [components/MainPane.vue:990](../app/src/components/MainPane.vue#L990)
+- Sidebar height hack (flexbox) — needs visual verification. → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
+- Colour-wheel timer hack — needs interactive verification. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
 
 ### P4 — future
+
 - Handle app-update failure via popup. → [background.js:585](../app/src/background.js#L585)
 - Drawing-tablet input support. → [components/MainPane.vue:1852](../app/src/components/MainPane.vue#L1852)
 
@@ -66,167 +124,17 @@ UI / hot-drawing-path changes that need interactive testing a code sweep can't d
 ## segmentation (classical trapped-ball + GapCloser inference)
 
 ### P3 — cleanup
+
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
-- Both the Python and Rust segmentation implementations are live; once the sidecar is the only shipped inference path, mark the Python one as data-prep/reference-only.
-- Golden sets live outside the repo (machine-local scratch) — same durable-home need as the CI goldens item above.
+- Python-vs-Rust duplication: tied to the hosted-backend EOL decision above
+  — when the hosted Python path is retired, mark the Python segmentation
+  implementation data-prep/reference-only.
+- Golden sets live outside the repo — covered by the durable-home item in
+  release / cross-cutting.
 
 ---
 
 ## serving/sidecar (Rust ONNX sidecar)
 
-No inline markers in the Rust/Python serving source, and no open items —
-the last one (gap-bucket `CACHE_KEY` + surgical CoreML-cache prune) closed
-2026-07-28; see "Recently resolved".
-
----
-
-## Recently resolved (2026-07)
-
-Closed since this file was created — listed so they aren't re-filed:
-
-- **`COREML_CACHE_KEY` stamp + surgical CoreML-cache prune** — 2026-07-28.
-  Verified on the real EP (ORT 1.29): the CoreML EP prefers a
-  `COREML_CACHE_KEY` metadata_props entry and uses it *verbatim* as the
-  compiled-cache subdir; without one it falls back to hashing the model's
-  file *path* — stable across republishes, hence untrustworthy, hence the
-  old full `wipeCoremlCache()` on every manifest change. Fix: both CoreML
-  bucket models re-released as **models-v2** with a content-derived key
-  (stamped by the new `serving/onnx/stamp_coreml_cache_key.py` —
-  metadata-only patch, graph bit-identical to models-v1, parity carried
-  over; +69/+73 bytes), the key mirrored in `model-manifest.js` as
-  `coremlCacheKey`, and `background.js` now *prunes* cache subdirs no
-  current model owns instead of wiping. A gap-only model bump now keeps the
-  AnT bucket's ~107 s compile (measured 25.8× warm-load speedup on the gap
-  bucket). The four non-CoreML assets were carried to models-v2
-  byte-identical via `upload-models.yml` (which also gained the two gap
-  inputs it was missing). Rule going forward: any bucket re-export re-runs
-  the stamp tool as its final step.
-- **Unsigned distribution (the $0 route)** — decided + shipped 2026-07-28,
-  with the publisher entity winding down: dropped Apple signing +
-  notarization (`mac.identity: null`, hardened runtime off, `notarize.js`
-  deleted) and Windows Authenticode (eSigner CKA step removed; inert
-  without its config hook). CI release-tag signing gates removed so `v*`
-  tags draft unsigned releases. Local unsigned build verified:
-  `Signature=adhoc`, no TeamIdentifier, no hardened-runtime flag.
-  Re-enabling path documented in `build-and-release.md` §4 (SignPath
-  Foundation is the likely route if signing returns).
-
-- **app P2/P3 sweep** — 2026-07-27. Cleared all three P2s and three P3s:
-  - *`playerInterval` in reactive Vuex (P2):* it was a setInterval/RAF handle
-    reassigned every animation frame during playback, with no reactive readers.
-    Moved to a module-local `playerHandle` in `mutations.js`; dropped from
-    `state.js` + `default-state.js` (no longer serialized into a `.cdm`).
-  - *Segmentation recompute (P2):* stale — both callers (`ANALYZE_CURRENT_FRAME`,
-    `ensureSegMap`) already skip the call when a content-addressed segmap file
-    exists. Replaced the TODO with a note pointing at that cache.
-  - *RadialGradient re-created per render (P2):* stale — all of it is commented
-    out, superseded by `stampBrushDraw`; no live perf issue.
-  - *Dead code (P3):* deleted `src/server.js` (the old spawn-a-bundled-server
-    path) + its three now-orphaned `binaries.js` exports; removed
-    `SET_TMP_IMAGE_ROOT_PATH` (mutation only wrote a never-read field) as a
-    6-site set; deleted the stock Cypress scaffold (the real e2e suite is the
-    CDP harness `tests/e2e/run.js`).
-  - *`util/modal.js` → `server-client.js` (P3):* it's the ML-server HTTP client,
-    not a UI modal; renamed the file + 5 importers + the jest.mock (symbols keep
-    the `modal*` prefix — a separate wider rename).
-  - *CoreML-cache disk double-count (P2/P3):* the capability probe now measures
-    the existing coreml-cache size and the evaluator reserves only the
-    not-yet-compiled remainder, so a near-full volume with a built cache is no
-    longer falsely blocked. Backward-compatible (absent → full reservation).
-- **serving/sidecar cleanup sweep** — 2026-07-27. Three of the four P3 items:
-  - *Bucket-only gap config had no CPU fallback:* `Engine::new` now warns at
-    startup when the gap EP is an accelerator (CoreML/DirectML) but no dynamic
-    `--gap-model` is configured — a failed accelerator build would otherwise
-    silently drop gap-closing to trapped-ball-only with no signal.
-  - *`CORPUS_BUCKET` dims duplicated:* added a `cargo test`
-    (`bucket.rs::corpus_bucket_matches_python_parity_source`) that `include_str!`s
-    `parity_corpus.py` and asserts the five dims match the Rust const — the one
-    guard that actually catches Rust↔Python drift (the golden harnesses that
-    would are out-of-CI). The `model-manifest.js` comment (which had already
-    dropped `cmds`) and `colorizer-serving.md` now point at the const instead of
-    restating numbers.
-  - *ORT dylib version `1.27.0` duplicated:* it lived in `fetch-ort-dylib.sh`,
-    `vue.config.js`, and `build-and-release.md` (ci.yml only calls the script;
-    Windows ships no dylib — the crate statically links pyke 1.24). `vue.config.js`
-    now globs `libonnxruntime.*.dylib` from `vendor/` (runtime finds it by the
-    same glob, so the filename is irrelevant), and the fetch script prunes stale
-    dylibs so exactly one ships. A bump now touches only `fetch-ort-dylib.sh`.
-    Also corrected the `ort_dylib.rs` doc that wrongly claimed the app sets
-    `ORT_DYLIB_PATH` (nothing does; packaged builds use the sibling glob).
-- **app P1 sweep** — 2026-07-27. Cleared the five app P1 items:
-  - *Out-of-bounds layer index* (`getters.js`): both sites were already guarded
-    by `if (!layer)` (an OOB index returns `undefined`) — removed the stale
-    `// TODO: … out of bounds` comments; no behavior change.
-  - *Missing color-before-line validation*: already implemented —
-    `ANALYZE_CURRENT_FRAME`'s import path warns via `colorImportedFirst()` and
-    aborts on decline. Was misfiled as open.
-  - *>255-segment analyze returns a phantom segmap path*: `ANALYZE_CURRENT_FRAME`
-    now reads `numSegments` from `generateSegmentationMap` and bails with the
-    shared `TOO_MANY_SEGMENTS` dialog (as COLORIZE does) instead of handing
-    `analyzeRef` a file that was never written.
-  - *`loadcdm` backfill defaults drifted from `state.js`* (30/30/1 vs 8/1/10;
-    `autoAlpha` absent→false vs default true): the backfill now reads the fresh
-    defaults straight from `state.js` (single source of truth, so it can't drift
-    again) and only overrides `autoAlpha` when it isn't already a boolean, so an
-    explicit `false` survives.
-  - *`validateFrameNumber` 1000 vs "999"*: not a bug — frame numbers are
-    filename+1, so the `> 1000` bound accepts filenames up to 999, matching the
-    copy. Left as-is (already documented in the file's header).
-- **DirectML gap-closer (Windows GPU gap closing)** — 2026-07-27. Diagnosed
-  from a field report ("gap closer in CPU mode on Windows"): the sidecar's
-  `GapEp` had no DirectML variant, so Windows gap closing was CPU-only on
-  every machine (the AMD GPU was a red herring). Added `GapEp::Dml` sharing
-  the batched forward with CoreML (`run_gap_accel`); ships the fp16 export
-  (fp32 batches OOM a 16 GB WDDM card) as a win32 `models-v1` accelerator;
-  `serving-profile` win32 `segment: 'dml'`. fp16 boundary parity vs the fp32
-  anchor: 10 flips / 10.5 M px (CPU proxy), 18 flips on the actual DirectML EP
-  on a T4 — both ~99.9998%. Standalone DML bench on the T4: batch-24 ~0.7 s vs
-  the 4-vCPU CPU path's multi-second gap close. CI (push 2026-07-27) compiled
-  the `cfg(windows)` DirectML path + passed the win-gated
-  `accel_report_windows_gap_dml_selection` test + packaged the win installer.
-  **The `/health segment=dml` integration test on the T4 rig then caught that
-  the shipped sidecar fell back to CPU (`887A0004`): it ships no `DirectML.dll`
-  and loaded the system 1.4.0 (Server 2022, too old).** Fix implemented
-  (2026-07-27): packaging ships DirectML 1.15.4 next to the exe
-  (`scripts/fetch-directml.ps1` + win `extraResources` + CI step); bundling that
-  DLL on the rig flipped `segment.active` cpu→dml (and colorize too).
-  **Closed** (2026-07-28): re-pushed, CI run 30298629024 packaged the win
-  installer with the `Fetch DirectML runtime (DML EP)` step green. The
-  fetch script sha256-pins the 1.15.4 redist to the exact DLL already
-  hardware-validated on the rig, so the CI bits are provably identical — no
-  further rig re-test needed. A confirming `/health segment=dml` check on the
-  packaged installer folds into the v1.5.7 Windows shakedown when the mac cert
-  unblocks the first signed release.
-- **LICENSE**: Apache 2.0 added repo-wide (root LICENSE + NOTICE; Cargo.toml/
-  pyproject/package.json declarations synced) — 2026-07-22.
-- **First-run CI shakedown**: the full pipeline (mac+win cargo test, jest,
-  packaged signed/notarized builds, tag-drafted releases) ran green for
-  v1.5.3–v1.5.5; mac end-to-end validated by a real install.
-- **Auto-update feed**: `publish` config was absent (packaged builds had no
-  feed at all); wired 2026-07-22 with the setup-ledger install-identity flow
-  around it.
-- Undeclared `choseToUpdate` assignment in background.js (ReferenceError when
-  declining an update) — removed.
-- **Color-import-without-line hang** (2026-07-22): Electron ≥32 removed
-  `File.path`, so the canny fallback read `undefined` from disk and the
-  failure was swallowed into a `new Promise(async ...)` executor that never
-  settled — analyze overlay up forever. Fixed three-deep: canny now takes the
-  frame's data URI directly, `generateSegmentationMap` is a plain async fn
-  (throws reject), `ANALYZE_CURRENT_FRAME` clears the overlay in a `finally`,
-  and import queues re-attach real paths via `webUtils.getPathForFile`.
-
-From the serving-backend review pass:
-
-- Prewarm gate race (inline ~107 s block + double CoreML compile): the AnT
-  bucket gate is now claimed synchronously before the server accepts requests.
-- AnT bucket build/forward failure now falls back to the dynamic CPU session
-  instead of failing the `/colorize` request.
-- CoreML gap-closer build failure is latched so `/segment` stops retrying a
-  compile that can't succeed (was a per-request retry-storm).
-- `ort_dylib::init` uses `ort::init_from` instead of mutating `ORT_DYLIB_PATH`
-  (unsound once tokio's worker threads exist); dylib pick is now deterministic
-  (newest version wins, not directory-iteration order).
-- `getGPUInfo('complete')` is capped at 3 s so a wedged GPU process can't hang
-  the capabilities probe.
-- First-run "Get started" now starts the one-time model download instead of
-  warming a sidecar that has no models.
+No open items and no inline markers in the Rust/Python serving source.
+(Section kept because the component docs link here.)
