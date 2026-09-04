@@ -276,9 +276,7 @@ curl -X POST http://localhost:8000/segment \
 
 Request/response handling is shared with the Modal stubs via
 `serving/handlers/`, so the two stay in lockstep. These contracts mirror the
-calls the desktop app makes (see `app/src/util/server-client.js`); the
-licensing/proxy fields the app sends (`user_id`, `license_key`, …) are simply
-ignored here.
+calls the desktop app makes (see `app/src/util/server-client.js`).
 
 ### Python-free local serving (the Rust sidecar)
 

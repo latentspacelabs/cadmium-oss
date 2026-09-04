@@ -147,8 +147,7 @@ Apple Developer cert, no Authenticode cert, no notarization. What users see:
   deleted). A browser-downloaded copy hits the Gatekeeper wall ("Apple cannot
   check it for malicious software") — since macOS 15 the override lives in
   System Settings → Privacy & Security → "Open Anyway", not right-click →
-  Open. A **Homebrew-cask install strips quarantine and opens clean** — make
-  that the recommended install path.
+  Open. Document that path wherever the download is offered.
 - **win**: unsigned NSIS installer — SmartScreen shows the "unknown
   publisher" wall (More info → Run anyway), UAC shows Unknown Publisher, AV
   false-positive odds run higher than for signed binaries, and

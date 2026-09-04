@@ -5,7 +5,9 @@ Everything that serves the ML pipeline, in both implementations:
 ```
 handlers/   framework-free request handlers — the HTTP contract's single
             source of truth (/segment, /preprocess, /colorize)
-local/      FastAPI server wrapping handlers/ (the hosted/self-hosted backend)
+local/      FastAPI server wrapping handlers/ — the reference implementation.
+            Self-host only: there is no hosted Cadmium service (wound down
+            2026-07); the shipped app uses the embedded sidecar by default.
 modal/      Modal deployment stubs wrapping the same handlers
 onnx/       ONNX export + parity infrastructure:
               export_ant_v2.py / export_gap_closer.py  — model export

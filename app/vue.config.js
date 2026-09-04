@@ -121,8 +121,7 @@ module.exports = {
           // ad-hoc signature only (identity: null) with the hardened runtime
           // OFF (ad-hoc + hardened runtime fails library validation at dyld
           // time), and no notarization (the afterSign hook is gone). Users
-          // get a Gatekeeper wall on first launch of a downloaded copy —
-          // Homebrew-cask installs strip quarantine and open clean. See
+          // get a Gatekeeper wall on first launch of a downloaded copy. See
           // docs/build-and-release.md.
           identity: null,
           hardenedRuntime: false,

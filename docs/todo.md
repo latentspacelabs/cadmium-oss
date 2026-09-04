@@ -47,42 +47,26 @@ P1/P2 sweeps.
 - Keep `models-v1` assets published — pre-v1.5.7 installs pin them by
   sha; deleting the release strands their model downloads.
 
-### P2 — distribution channels for an unsigned app
+### P2 — durable off-box home for the goldens (wallace decommission risk)
 
-- **Homebrew cask** — build-and-release §4 now calls the cask the
-  recommended mac install path, and it doesn't exist yet (brew strips
-  quarantine, so cask installs skip the Gatekeeper wall entirely). Needs a
-  published, non-draft release with a stable DMG URL; homebrew/cask has
-  notability criteria, so a project tap (`latentspacelabs/homebrew-tap`)
-  is the always-works fallback.
-- **winget manifest** — the analogous trusted channel on Windows (does not
-  remove SmartScreen, but is where technical users look first).
-
-### P2 — hosted-backend end-of-life plan (entity wind-down) — needs decisions
-
-- What do shipped builds point at when the hosted server goes away:
-  default-URL behavior (today the app falls back to
-  `http://localhost:8000`), in-app messaging for dead hosted URLs, and a
-  self-hosting pointer (`serving.local.server` / the embedded sidecar).
-- Strip the commercial-era licensing/proxy fields (`user_id`,
-  `license_key`, …) from `server-client.js` requests — every OSS backend
-  ignores them, and a clean single-license posture also helps a SignPath
-  Foundation application (their terms exclude commercially dual-licensed
-  projects).
-
-### P2 — durable home for goldens + parity artifacts (wallace decommission risk)
-
-The multi-GB `verify_*` golden dirs and parity bundles live as
-machine-local scratch on wallace; segmentation golden sets have the same
-problem. If wallace is decommissioned in the wind-down they are gone and
-the sidecar's byte-exact gates can never run again. Publish them durably (a
-`goldens-v1` release — mind the 2 GiB/file cap — or S3), and while there,
-verify the `checkpoints-v1` release truly carries both checkpoint assets
-(wallace still holds a local staging dir). Durable goldens also unblock
-running the verify harnesses in CI (ci.yml header: "no durable home yet").
+Found 2026-07-28: the golden suites lived in **`/tmp` on wallace** — wiped
+on reboot — and are now copied to `~/cadmium-goldens` there (1.6 GB total:
+tokenizer 674M, segment 476M, imageprep 342M, gapcloser 126M, plus http /
+postprocess / vtracer / run logs). Remaining: publish them off-box (every
+suite is well under the 2 GiB/file cap even tarred whole, so a
+`goldens-v1` GitHub release works; S3 is the alternative), which also
+unblocks running the `verify_*` harnesses in CI (ci.yml header: "no
+durable home yet"). Residuals: the `parity_corpus.py --dump` bundles were
+not found on wallace (likely consumed during replay work — regenerable
+from the checkpoints while a pinned-env CUDA box exists), and confirm the
+`checkpoints-v1` release truly carries both checkpoint assets (wallace
+still holds a local staging dir).
 
 ### P4 — future
 
+- **winget manifest** for the unsigned installer — a trusted discovery
+  channel on Windows (doesn't remove SmartScreen). A Homebrew cask was
+  considered and declined (2026-07-28).
 - **SignPath Foundation application**, if signing ever returns: free OSS
   code signing that needs no legal entity; check the
   no-commercial-dual-licensing criterion first. build-and-release §4
@@ -126,11 +110,10 @@ outright** rather than keep as standing debt:
 ### P3 — cleanup
 
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
-- Python-vs-Rust duplication: tied to the hosted-backend EOL decision above
-  — when the hosted Python path is retired, mark the Python segmentation
-  implementation data-prep/reference-only.
-- Golden sets live outside the repo — covered by the durable-home item in
-  release / cross-cutting.
+- Golden sets: covered by the durable-home item in release / cross-cutting.
+  (The Python serving path is now documented as reference/self-host-only —
+  hosted service wound down 2026-07 — so the old "mark Python
+  reference-only once the sidecar is the only shipped path" item is done.)
 
 ---
 

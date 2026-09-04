@@ -10,7 +10,7 @@
 # Releases ship UNSIGNED by design (the $0 open-source route — see
 # docs/build-and-release.md): mac gets an ad-hoc signature with the hardened
 # runtime off and no notarization (Gatekeeper wall on first launch of a
-# downloaded copy; Homebrew-cask installs open clean), win an unsigned
+# downloaded copy), win an unsigned
 # installer (SmartScreen "unknown publisher", click-through-able). To
 # re-enable signing later (e.g. SignPath Foundation for win, an Apple
 # Developer cert for mac): unpin mac.identity (null in vue.config.js and
