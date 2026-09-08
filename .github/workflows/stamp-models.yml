@@ -1,0 +1,62 @@
+# One-shot (workflow_dispatch): produce the COREML_CACHE_KEY-stamped CoreML
+# bucket models for models-v2 entirely on a runner. The stamp is
+# deterministic — a metadata-only patch whose key derives from the pre-stamp
+# file sha (serving/onnx/stamp_coreml_cache_key.py) — so the runner's output
+# must match the manifest's pinned sha256 byte-for-byte, and this workflow
+# verifies exactly that before uploading. Exists because pushing ~1.9 GB
+# through a home uplink proved slow and flaky; safe to delete once models-v2
+# is complete (future bucket re-exports carry NEW weights and are stamped on
+# the export box, not here).
+name: Stamp + upload CoreML bucket models
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download models-v1 buckets, stamp, verify against manifest, upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Pin the onnx version the manifest hashes were produced with, so
+          # serialization is bit-reproducible.
+          pip install --quiet onnx==1.22.0
+
+          V1="https://github.com/$GITHUB_REPOSITORY/releases/download/models-v1"
+          curl -fSL --retry 3 "$V1/ant_v2_fp32_bucket.onnx" -o ant_v2_fp32_bucket.onnx
+          curl -fSL --retry 3 "$V1/gap_closer_fp32_bucket.onnx" -o gap_closer_fp32_bucket.onnx
+
+          # The un-stamped models-v1 bytes the cache keys derive from.
+          sha256sum -c <<'EOF'
+          af4a4194362fd6ef81d6df2d8d653372da3265471aa19dfceaab5f97c443e30d  ant_v2_fp32_bucket.onnx
+          1f1966b41c04a8b406ff8d16c54cbfa3354e5aec3d196507861f211beeb36e0d  gap_closer_fp32_bucket.onnx
+          EOF
+
+          python serving/onnx/stamp_coreml_cache_key.py --model ant_v2_fp32_bucket.onnx --tag antv2fp32bucket
+          python serving/onnx/stamp_coreml_cache_key.py --model gap_closer_fp32_bucket.onnx --tag gapcloserfp32bucket
+
+          # The stamped outputs must equal the manifest's pins exactly.
+          MANIFEST=app/src/util/model-manifest.js
+          node -e "require('./$MANIFEST').MODEL_FILES.forEach(m => console.log(m.sha256 + '  ' + m.file))" \
+            | grep bucket > expected.txt
+          cat expected.txt
+          sha256sum -c expected.txt
+
+          TAG=$(node -e "console.log(require('./$MANIFEST').MODELS_RELEASE_TAG)")
+          echo "Uploading to $TAG"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber \
+            ant_v2_fp32_bucket.onnx gap_closer_fp32_bucket.onnx
+          echo "Done."

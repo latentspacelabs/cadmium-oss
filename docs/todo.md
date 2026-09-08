@@ -17,7 +17,11 @@ it points at.
 
 ---
 
+
+
 ## release / cross-cutting
+
+
 
 ### P1 — ship v1.5.7, the first unsigned release (now unblocked)
 
@@ -28,59 +32,34 @@ the DirectML.dll fix, the nav-bar Server Settings button, and the July
 P1/P2 sweeps.
 
 - **Pre-flight — the signed→unsigned auto-update transition.** The record is
-  ambiguous on whether v1.5.3–v1.5.6 actually shipped Developer-ID-signed
-  (the CI-shakedown note said "signed/notarized ran green"; the later
-  "first signed release" framing said no cert existed). If any published
-  release WAS signed, its installed base may refuse an unsigned v1.5.7
-  (mac: Squirrel validates the update's signature against the running app;
-  win: electron-updater's publisher check) and those users need a one-time
-  manual re-download. Check `codesign -dv` on a downloaded v1.5.6 artifact
-  before tagging, and write the release notes accordingly.
+ambiguous on whether v1.5.3–v1.5.6 actually shipped Developer-ID-signed
+(the CI-shakedown note said "signed/notarized ran green"; the later
+"first signed release" framing said no cert existed). If any published
+release WAS signed, its installed base may refuse an unsigned v1.5.7
+(mac: Squirrel validates the update's signature against the running app;
+win: electron-updater's publisher check) and those users need a one-time
+manual re-download. Check `codesign -dv` on a downloaded v1.5.6 artifact
+before tagging, and write the release notes accordingly.
 - **Unsigned-install UX docs, shipped WITH the release:** README + release
-  notes say the warnings are expected and how to get through them
-  (macOS 15+: System Settings → Privacy & Security → "Open Anyway";
-  win: SmartScreen → More info → Run anyway).
+notes say the warnings are expected and how to get through them
+(macOS 15+: System Settings → Privacy & Security → "Open Anyway";
+win: SmartScreen → More info → Run anyway).
 - **Windows installer shakedown on real hardware** (folds in the deferred
-  DirectML end-to-end confirm): install packaged v1.5.7 on the T4 rig,
-  SmartScreen click-through, `/health` reports `segment.active=dml` and
-  `colorize.active=dml`, colorize a real drawing.
+DirectML end-to-end confirm): install packaged v1.5.7 on the T4 rig,
+SmartScreen click-through, `/health` reports `segment.active=dml` and
+`colorize.active=dml`, colorize a real drawing.
 - Keep `models-v1` assets published — pre-v1.5.7 installs pin them by
-  sha; deleting the release strands their model downloads.
+sha; deleting the release strands their model downloads.
 
-### P2 — durable off-box home for the goldens (wallace decommission risk)
 
-Found 2026-07-28: the golden suites lived in **`/tmp` on wallace** — wiped
-on reboot — and are now copied to `~/cadmium-goldens` there (1.6 GB total:
-tokenizer 674M, segment 476M, imageprep 342M, gapcloser 126M, plus http /
-postprocess / vtracer / run logs). Remaining: publish them off-box (every
-suite is well under the 2 GiB/file cap even tarred whole, so a
-`goldens-v1` GitHub release works; S3 is the alternative), which also
-unblocks running the `verify_*` harnesses in CI (ci.yml header: "no
-durable home yet"). Residuals: the `parity_corpus.py --dump` bundles were
-not found on wallace (likely consumed during replay work — regenerable
-from the checkpoints while a pinned-env CUDA box exists), and confirm the
-`checkpoints-v1` release truly carries both checkpoint assets (wallace
-still holds a local staging dir).
-
-### P4 — future
-
-- **winget manifest** for the unsigned installer — a trusted discovery
-  channel on Windows (doesn't remove SmartScreen). A Homebrew cask was
-  considered and declined (2026-07-28).
-- **SignPath Foundation application**, if signing ever returns: free OSS
-  code signing that needs no legal entity; check the
-  no-commercial-dual-licensing criterion first. build-and-release §4
-  records the full re-enable path.
-- **Web-app spike**: browser UI against a hosted GPU backend. The
-  architecture already splits at the HTTP contract (`server-client.js`
-  talks to any backend), so the UI port is bounded — but on-device
-  inference does not survive the move (no sidecar in a browser; ORT-Web/
-  WebGPU for a 1.4 GB custom-op model is a research project), and the trade
-  is install friction for a usage-scaled GPU bill.
 
 ---
 
+
+
 ## app (Electron / Vue renderer + main)
+
+
 
 ### P3 — deferred with cause
 
@@ -98,6 +77,8 @@ outright** rather than keep as standing debt:
 - Sidebar height hack (flexbox) — needs visual verification. → [components/Sidebar.vue:191](../app/src/components/Sidebar.vue#L191)
 - Colour-wheel timer hack — needs interactive verification. → [components/ColorWheelControls.vue:624](../app/src/components/ColorWheelControls.vue#L624)
 
+
+
 ### P4 — future
 
 - Handle app-update failure via popup. → [background.js:585](../app/src/background.js#L585)
@@ -105,17 +86,24 @@ outright** rather than keep as standing debt:
 
 ---
 
+
+
 ## segmentation (classical trapped-ball + GapCloser inference)
+
+
 
 ### P3 — cleanup
 
 - Combine the two neighbouring helpers in `parallel.py`. → [trapped_ball/parallel.py:16](../segmentation/trapped_ball/parallel.py#L16)
-- Golden sets: covered by the durable-home item in release / cross-cutting.
-  (The Python serving path is now documented as reference/self-host-only —
-  hosted service wound down 2026-07 — so the old "mark Python
-  reference-only once the sidecar is the only shipped path" item is done.)
+- Golden sets live at `~/cadmium-goldens` on wallace (rescued from `/tmp`
+2026-07-28); no off-box copy yet.
+(The Python serving path is now documented as reference/self-host-only —
+hosted service wound down 2026-07 — so the old "mark Python
+reference-only once the sidecar is the only shipped path" item is done.)
 
 ---
+
+
 
 ## serving/sidecar (Rust ONNX sidecar)
 
