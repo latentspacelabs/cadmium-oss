@@ -192,8 +192,14 @@ details, EP workarounds, and measured timings.
 The Electron + Vue app is self-contained: drawing, timeline, and `.cdm`
 save/load/export all work with **no backend and no Python**. Only the ML
 features (analyze/colorize/paint-bucket) need a serving backend, and that can be
-either a hosted URL or the bundled Rust sidecar — chosen at runtime in the
+either a self-hosted URL or the bundled Rust sidecar — chosen at runtime in the
 in-app Server Settings dialog.
+
+> **Installing a packaged release?** Builds are unsigned (free OSS project — no
+> code-signing certs), so expect a one-time warning: **macOS** blocks the first
+> launch — System Settings → Privacy & Security → **"Open Anyway"**;
+> **Windows** shows SmartScreen — **More info → Run anyway**. Details in
+> [docs/build-and-release.md](docs/build-and-release.md).
 
 ```bash
 cd app
