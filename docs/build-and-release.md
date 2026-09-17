@@ -75,9 +75,15 @@ Packaged-build gotchas, learned the hard way:
 - **Never pass `-c.` config overrides on the electron-builder CLI** (e.g.
   `-c.mac.hardenedRuntime=false`). They replace, rather than merge with,
   the vue-cli plugin's programmatic `builderOptions`, producing an asar
-  without `background.js` and a wrong output dir. Env-guarded entries in
-  `vue.config.js` `builderOptions` are the supported seam — that's how
-  both `CADMIUM_UNSIGNED_LOCAL_BUILD` and `CADMIUM_WIN_SIGN_SHA1` work.
+  without `background.js` and a wrong output dir. Entries in `vue.config.js`
+  `builderOptions` (env-guarded if conditional) are the supported seam —
+  the signing-era `CADMIUM_UNSIGNED_LOCAL_BUILD` / `CADMIUM_WIN_SIGN_SHA1`
+  toggles worked that way.
+- **The app icon is `build/icon.png`** (1024², copied from `public/icon.png`;
+  electron-builder auto-converts it to `.icns`/`.ico`). Like the entitlements
+  it is **force-added past the `build/` gitignore** — replace it with
+  `git add -f` or CI silently ships the default Electron icon (which is
+  exactly what v1.5.6 did).
 - **Launching a packaged app that silently exits 0 instantly**: check for
   stale `Singleton*` files in `~/Library/Application Support/Cadmium`
   (left by a SIGKILLed instance; delete them), and make sure
