@@ -109,6 +109,13 @@ function defaultDelay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** True while a /health body reports a CoreML compile still in flight. */
+function healthReportsBuilding(health) {
+  const accel = health && health.acceleration;
+  if (!accel) return false;
+  return Object.values(accel).some((cap) => cap && cap.active === 'building');
+}
+
 // Append stream to the sidecar log, with a simple size-capped rotation.
 function defaultCreateLogSink(userDataPath) {
   const fs = require('fs');
@@ -161,6 +168,9 @@ export class SidecarManager {
       maxRestarts = 3,
       stableResetMs = 60000,
       stopGraceMs = 3000,
+      // Building re-poll (see _pollWhileBuilding).
+      buildingPollIntervalMs = 5000,
+      buildingPollMaxMs = 10 * 60 * 1000,
       logFn = (...args) => console.log('[sidecar]', ...args),
     } = opts;
 
@@ -183,6 +193,9 @@ export class SidecarManager {
     this.maxRestarts = maxRestarts;
     this.stableResetMs = stableResetMs;
     this.stopGraceMs = stopGraceMs;
+    this.buildingPollIntervalMs = buildingPollIntervalMs;
+    this.buildingPollMaxMs = buildingPollMaxMs;
+    this._buildingPoll = false;
     this.logFn = logFn;
 
     this.state = SIDECAR_STATES.STOPPED;
@@ -232,7 +245,8 @@ export class SidecarManager {
   /**
    * Re-poll /health while READY and push a status update if the body changed
    * (the acceleration report moves as CoreML compiles finish or fall back).
-   * Fire-and-forget from the sync `sidecar:status` IPC; never throws.
+   * Fire-and-forget from the sync `sidecar:status` IPC and from the
+   * building-poll loop below; never throws.
    */
   async refreshHealth() {
     if (this.state !== SIDECAR_STATES.READY) return;
@@ -248,6 +262,41 @@ export class SidecarManager {
     const changed = JSON.stringify(health) !== JSON.stringify(this.lastHealth);
     this.lastHealth = health;
     if (changed && this.onStatus) this.onStatus(this.getStatus());
+    // An IPC-triggered refresh can be the first to see a `building` report
+    // (no-op while the loop below already runs).
+    this._pollWhileBuilding();
+  }
+
+  /**
+   * While READY and the acceleration report says `building`, keep re-polling
+   * /health so subscribers see the compile settle without having to ask.
+   * The readiness snapshot is taken before the AnT CoreML compile finishes
+   * (prewarm flips its gate to BUILDING before the server accepts
+   * connections), and the Server Settings modal is push-driven — without
+   * this loop, a user watching "Optimizing…" during the one-time compile
+   * saw it stick forever. Reentry-guarded; exits on any state/generation
+   * change or after `buildingPollMaxMs` (a wedged compile must not be
+   * polled unboundedly).
+   */
+  async _pollWhileBuilding() {
+    if (this._buildingPoll) return;
+    this._buildingPoll = true;
+    const gen = this._generation;
+    const deadline = this.nowFn() + this.buildingPollMaxMs;
+    try {
+      while (
+        gen === this._generation
+        && this.state === SIDECAR_STATES.READY
+        && healthReportsBuilding(this.lastHealth)
+        && this.nowFn() < deadline
+      ) {
+        await this.delayFn(this.buildingPollIntervalMs);
+        if (gen !== this._generation || this.state !== SIDECAR_STATES.READY) break;
+        await this.refreshHealth();
+      }
+    } finally {
+      this._buildingPoll = false;
+    }
   }
 
   _setState(state) {
@@ -408,6 +457,10 @@ export class SidecarManager {
         }
         this.lastHealth = typeof health === 'object' ? health : null;
         this._setState(SIDECAR_STATES.READY);
+        // On macOS the report virtually always starts as `building` here
+        // (prewarm claims the gate before the server listens) — track the
+        // compile to completion so the pushed status settles on its own.
+        this._pollWhileBuilding();
         return this.getStatus();
       }
       await this.delayFn(this.pollIntervalMs);

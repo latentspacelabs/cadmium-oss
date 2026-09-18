@@ -551,6 +551,43 @@ describe('SidecarManager — health body / acceleration report', () => {
     expect(h.manager.getStatus().health.acceleration.colorize.active).toBe('coreml');
   });
 
+  it('keeps re-polling on its own while the report says building, then stops', async () => {
+    // The field bug this guards: the readiness /health snapshot is taken
+    // while the AnT CoreML compile is still in flight (active: 'building'),
+    // and the modal is push-driven — so without the manager's building-poll
+    // loop, "Optimizing for this computer" stuck forever after the compile
+    // finished.
+    let calls = 0;
+    const h = makeHarness({
+      health: () => {
+        calls += 1;
+        if (calls < 4) return HEALTH; // readiness + first re-polls: compiling
+        return {
+          ...HEALTH,
+          acceleration: {
+            ...HEALTH.acceleration,
+            colorize: { planned: 'coreml', active: 'coreml', reason: null },
+          },
+        };
+      },
+    });
+    await h.manager.ensureStarted();
+    // The loop is fire-and-forget over instantly-resolving injected delays;
+    // one macrotask boundary lets its microtask chain run out.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The settled report was pushed without anyone calling sidecar:status.
+    expect(h.manager.getStatus().health.acceleration.colorize.active).toBe('coreml');
+    expect(h.statuses.some(
+      (s) => s.health && s.health.acceleration.colorize.active === 'coreml',
+    )).toBe(true);
+
+    // And the polling stopped once nothing was building.
+    const settled = calls;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toBe(settled);
+  });
+
   it('health is nulled once the sidecar stops (no stale report)', async () => {
     const h = makeHarness({ health: () => HEALTH, childOptions: { exitOnSigterm: true } });
     await h.manager.ensureStarted();
