@@ -1,5 +1,5 @@
 <template>
-  <div class="home">
+  <div class="home" :class="{ 'home--debug-open': showDebugPanel }">
     <nav-bar @open-server-settings="onOpenServerSettings"></nav-bar>
     <main-pane
       class="home__main-pane"
@@ -138,9 +138,17 @@ export default {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  // The Debug Log panel's docked height (DebugPanel.vue reads this too).
+  --debug-panel-height: max(30vh, 180px);
 }
 .home__main-pane {
   // flex-grow: 1;
   height: calc(100vh - var(--nav-bar-height));
+}
+// While the Debug Log panel is docked at the bottom, the main pane gives up
+// its height so the canvas/timeline move up instead of being covered
+// (MainPane's resize-observer re-fits the canvas).
+.home--debug-open .home__main-pane {
+  height: calc(100vh - var(--nav-bar-height) - var(--debug-panel-height));
 }
 </style>

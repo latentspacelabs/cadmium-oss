@@ -156,22 +156,17 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-// Non-blocking bottom strip: below the modals (WelcomeModal 9999, Server
-// Settings 10000) so they stay usable above it, above the canvas/timeline.
+// Docked bottom strip: a flow child of the Home column — the main pane
+// shrinks to make room (see Home.vue), so nothing is covered. The modals
+// are fixed overlays and still render above it. Height must stay in sync
+// with --debug-panel-height in Home.vue.
 .debug-panel {
-  position: fixed;
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  height: 34vh;
-  min-height: 180px;
-  z-index: 9000;
+  flex-shrink: 0;
+  height: var(--debug-panel-height, 30vh);
   display: flex;
   flex-direction: column;
   background: #2d2d2d;
-  border: 1px solid #4e4e4e;
-  border-radius: 6px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  border-top: 1px solid #4e4e4e;
   overflow: hidden;
 }
 
