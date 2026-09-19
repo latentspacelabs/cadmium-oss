@@ -30,7 +30,7 @@
             />
             <span class="server-modal__backend-body">
               <span class="server-modal__backend-name">
-                {{ t('Embedded (this computer)') }}
+                {{ t('On device') }}
                 <span v-if="firstRun && !embeddedBlocked" class="server-modal__badge">
                   {{ t('Recommended') }}
                 </span>
