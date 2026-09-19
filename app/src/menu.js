@@ -495,6 +495,14 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
+        // Toggles the live sidecar/backend log stream (renderer panel).
+        label: t('Debug Log'),
+        accelerator: 'CommandOrControl+Shift+D',
+        click: () => {
+          getWebContents().send('show-debug-panel', true);
+        },
+      },
+      {
         label: t('Support'),
         click: () => {
           console.log("SHOW SUPPORT DIALOG");

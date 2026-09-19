@@ -365,6 +365,14 @@ function ipcRendererHandlers() {
     updateModelDownloadProgress(progress);
   });
 
+  // Debug-log batches (supervisor + sidecar output lines) for the Debug Log
+  // panel. Subscribed here at boot so the renderer cache accumulates even
+  // while the panel is closed.
+  subscribe('sidecar:log', async (event, batch) => {
+    const { ingestSidecarLogEntries } = await import('./util/sidecar-log.js');
+    ingestSidecarLogEntries(batch);
+  });
+
   subscribe('saveBeforeQuit', () => {
     saveBeforeQuit();
   });

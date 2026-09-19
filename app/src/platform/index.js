@@ -110,6 +110,19 @@ export function getSystemCapabilities() {
   return ipcRenderer().invoke('system:capabilities');
 }
 
+// Debug Log panel: the main process's ring of supervisor + sidecar output
+// lines captured since launch. Live batches arrive on the 'sidecar:log'
+// channel (see ipc-renderer-handlers.js / util/sidecar-log.js); the history
+// call covers lines from before a late-opened panel subscribed.
+export function getSidecarLogHistory() {
+  return ipcRenderer().invoke('sidecar:log-history');
+}
+
+// Reveal <userData>/sidecar/logs/sidecar.log in the OS file manager.
+export function revealSidecarLogFile() {
+  return ipcRenderer().invoke('sidecar:reveal-log-file');
+}
+
 // --- Temp files (tracked in the main process for cleanup) ---
 
 export function addTempFile(filePath) {
@@ -236,6 +249,12 @@ export function createMenuItem(options) {
 
 export function popupMenu(menu) {
   menu.popup({ window: currentWindow() });
+}
+
+// --- Clipboard ---
+
+export function writeClipboardText(text) {
+  require('electron').clipboard.writeText(text);
 }
 
 // --- Shell ---

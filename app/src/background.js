@@ -32,6 +32,7 @@ import { showDialogFromMain, initializeDialogHandler } from './util/mainProcessD
 import { isProduction } from './util/app-util';
 import { legacyServerUrlToBackend, SERVER_BACKEND_PREF_KEY } from './util/server-config';
 import { createSidecarManager } from './sidecar-manager';
+import { createDebugLog, accelerationTransitionLines } from './util/debug-log-core';
 import {
   LEDGER_FILE, manifestHash, decideLaunch, stampUpdatingTo,
   filesNeedingVerification, recordVerification,
@@ -464,7 +465,36 @@ isReady = true;
 // Created lazily and SPAWNED only via ensureStarted() — first use of the
 // embedded backend, never app launch. The renderer reaches it through the
 // sidecar:* IPC channels below; status transitions are pushed to the window.
+
+// In-app debug log: a bounded ring of supervisor lines + sidecar output,
+// streamed to the renderer's Debug Log panel in small batches. Independent
+// of the on-disk sidecar.log sink (which stays unbatched and unfiltered);
+// this ring is the session-scoped live view.
+let debugLog = null;
+let pendingLogEntries = [];
+let logFlushTimer = null;
+function getDebugLog() {
+  if (!debugLog) {
+    debugLog = createDebugLog();
+    debugLog.onAppend((entry) => {
+      pendingLogEntries.push(entry);
+      // Trailing-edge batch: model-load spew can be hundreds of lines/s and
+      // must not become an IPC message per line. 200ms is imperceptible.
+      if (!logFlushTimer) {
+        logFlushTimer = setTimeout(() => {
+          logFlushTimer = null;
+          const batch = pendingLogEntries;
+          pendingLogEntries = [];
+          if (win && win.webContents) win.webContents.send('sidecar:log', batch);
+        }, 200);
+      }
+    });
+  }
+  return debugLog;
+}
+
 let sidecarManager = null;
+let prevStatusForLog = null;
 function getSidecarManager() {
   if (!sidecarManager) {
     sidecarManager = createSidecarManager({
@@ -474,6 +504,24 @@ function getSidecarManager() {
       userDataPath: app.getPath('userData'),
       onStatus: (status) => {
         if (win && win.webContents) win.webContents.send('sidecar:status', status);
+        // Mirror acceleration transitions into the debug log — they never
+        // pass through logFn (refreshHealth pushes status without logging),
+        // yet "CPU instead of GPU" is the #1 thing the panel exists for.
+        if (prevStatusForLog && prevStatusForLog.state === 'ready' && status.state !== 'ready') {
+          getDebugLog().flushCarry(); // child gone — emit trailing partial lines
+        }
+        accelerationTransitionLines(prevStatusForLog, status)
+          .forEach((line) => getDebugLog().append('app', line));
+        prevStatusForLog = status;
+      },
+      // Supervisor lines (state transitions, spawn pid/port, crash + restart
+      // backoff) — keep the console copy, add the panel copy.
+      logFn: (...args) => {
+        console.log('[sidecar]', ...args);
+        getDebugLog().append('app', args.map(String).join(' '));
+      },
+      onChildOutput: (stream, chunk) => {
+        getDebugLog().appendChunk(stream === 'stderr' ? 'sidecar-err' : 'sidecar', chunk);
       },
     });
   }
@@ -596,6 +644,25 @@ ipcMain.handle('sidecar:clear-models', async () => {
 // Snapshot for late subscribers (modal reopened mid-download).
 ipcMain.handle('sidecar:models-progress', () => {
   return modelDownloader ? modelDownloader.getProgress() : { state: 'idle' };
+});
+
+// Everything the debug-log ring holds (captured since launch) — the Debug
+// Log panel fetches this once on open, then follows the 'sidecar:log' pushes.
+ipcMain.handle('sidecar:log-history', () => getDebugLog().entries());
+
+// Reveal the on-disk sidecar log (survives restarts; the in-memory ring
+// doesn't). Falls back to opening the log directory before the first spawn.
+ipcMain.handle('sidecar:reveal-log-file', () => {
+  // eslint-disable-next-line global-require
+  const { shell } = require('electron');
+  const { logDir, logPath } = getSidecarManager().paths;
+  if (fs.existsSync(logPath)) {
+    shell.showItemInFolder(logPath);
+  } else {
+    try { fs.mkdirSync(logDir, { recursive: true }); } catch (e) { /* best effort */ }
+    shell.openPath(logDir);
+  }
+  return null;
 });
 
 // Best-effort recursive byte size of a directory (0 if missing/unreadable).

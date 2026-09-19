@@ -102,6 +102,10 @@ export function resolveSidecarPaths({
     // Where CoreML persists compiled models (macOS): the AnT bucket compiles
     // once (~107s, background) then reloads in ~20s per process start.
     coremlCacheDir: path.join(userDataPath, 'sidecar', 'coreml-cache'),
+    // Where sidecar stdout/stderr is appended (sidecar-manager.js _writeLog;
+    // revealed by the Debug Log panel's "Log File" action).
+    logDir: path.join(userDataPath, 'sidecar', 'logs'),
+    logPath: path.join(userDataPath, 'sidecar', 'logs', 'sidecar.log'),
   };
 }
 

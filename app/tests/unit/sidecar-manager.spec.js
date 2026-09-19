@@ -600,6 +600,46 @@ describe('SidecarManager — health body / acceleration report', () => {
 // Accelerator-model visibility (Serving Profile, Phase 2)
 // ---------------------------------------------------------------------------
 
+describe('SidecarManager — onChildOutput tap', () => {
+  it('forwards stdout and stderr chunks with stream tags', async () => {
+    const output = [];
+    const h = makeHarness({
+      managerOptions: {
+        onChildOutput: (stream, chunk) => output.push([stream, String(chunk)]),
+      },
+    });
+    await h.manager.ensureStarted();
+    const { child } = h.spawned[0];
+    child.stdout.emit('data', 'listening on 4300\n');
+    child.stderr.emit('data', 'warn: no bucket model\n');
+    expect(output).toEqual([
+      ['stdout', 'listening on 4300\n'],
+      ['stderr', 'warn: no bucket model\n'],
+    ]);
+  });
+
+  it('a throwing tap breaks neither the log sink, the stderr tail, nor crash handling', async () => {
+    const written = [];
+    const h = makeHarness({
+      managerOptions: {
+        createLogSinkFn: () => ({ write: (c) => written.push(String(c)), end: () => {} }),
+        onChildOutput: () => { throw new Error('broken tap'); },
+      },
+    });
+    await h.manager.ensureStarted();
+    const { child } = h.spawned[0];
+    child.stderr.emit('data', 'fatal: boom\n');
+    // The file sink and the stderr tail both still saw the chunk.
+    expect(written).toContain('fatal: boom\n');
+    // And the crash path still runs, tail included.
+    child.emit('exit', 1, null);
+    expect(h.manager.state).toBe(SIDECAR_STATES.STARTING);
+    expect(h.manager.lastError).toContain('fatal: boom');
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY);
+  });
+});
+
 describe('SidecarManager — missingAccel in the status', () => {
   it('lists absent darwin accelerator models without blocking readiness', async () => {
     const h = makeHarness({

@@ -117,22 +117,19 @@ function healthReportsBuilding(health) {
 }
 
 // Append stream to the sidecar log, with a simple size-capped rotation.
-function defaultCreateLogSink(userDataPath) {
+function defaultCreateLogSink(logDir, logPath) {
   const fs = require('fs');
-  const path = require('path');
-  const dir = path.join(userDataPath, 'sidecar', 'logs');
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'sidecar.log');
+  fs.mkdirSync(logDir, { recursive: true });
   try {
-    if (fs.statSync(file).size > LOG_MAX_BYTES) {
-      const rotated = path.join(dir, 'sidecar.log.1');
+    if (fs.statSync(logPath).size > LOG_MAX_BYTES) {
+      const rotated = `${logPath}.1`;
       try { fs.rmSync(rotated, { force: true }); } catch (e) { /* best effort */ }
-      fs.renameSync(file, rotated);
+      fs.renameSync(logPath, rotated);
     }
   } catch (e) {
     // No log yet (or unstatable) — fine.
   }
-  return fs.createWriteStream(file, { flags: 'a' });
+  return fs.createWriteStream(logPath, { flags: 'a' });
 }
 
 function defaultRegisterExitHook(fn) {
@@ -162,6 +159,10 @@ export class SidecarManager {
       registerExitHookFn = defaultRegisterExitHook,
       // Status push (background.js forwards to the renderer window).
       onStatus = null,
+      // Raw child stdout/stderr tap ('stdout'|'stderr', chunk) — feeds the
+      // Debug Log panel's live stream (background.js). Independent of the
+      // file sink; a throwing tap never breaks supervision.
+      onChildOutput = null,
       // Tunables.
       readinessTimeoutMs = 20000,
       pollIntervalMs = 250,
@@ -185,9 +186,11 @@ export class SidecarManager {
     this.fetchHealthFn = fetchHealthFn;
     this.delayFn = delayFn;
     this.nowFn = nowFn;
-    this.createLogSinkFn = createLogSinkFn || (() => defaultCreateLogSink(userDataPath));
+    this.createLogSinkFn = createLogSinkFn
+      || (() => defaultCreateLogSink(this.paths.logDir, this.paths.logPath));
     this.registerExitHookFn = registerExitHookFn;
     this.onStatus = onStatus;
+    this.onChildOutput = onChildOutput;
     this.readinessTimeoutMs = readinessTimeoutMs;
     this.pollIntervalMs = pollIntervalMs;
     this.maxRestarts = maxRestarts;
@@ -483,11 +486,17 @@ export class SidecarManager {
   // --- Child wiring ---------------------------------------------------------
 
   _attachChild(child, gen) {
-    if (child.stdout) child.stdout.on('data', (chunk) => this._writeLog(chunk));
+    if (child.stdout) {
+      child.stdout.on('data', (chunk) => {
+        this._writeLog(chunk);
+        this._tapChildOutput('stdout', chunk);
+      });
+    }
     if (child.stderr) {
       child.stderr.on('data', (chunk) => {
         this._writeLog(chunk);
         this._pushStderr(chunk);
+        this._tapChildOutput('stderr', chunk);
       });
     }
     child.on('error', (err) => this._onChildGone(child, gen, null, err));
@@ -547,6 +556,15 @@ export class SidecarManager {
   }
 
   // --- Logging --------------------------------------------------------------
+
+  _tapChildOutput(stream, chunk) {
+    if (!this.onChildOutput) return;
+    try {
+      this.onChildOutput(stream, chunk);
+    } catch (e) {
+      // A broken tap must not take the supervisor down (same rule as onStatus).
+    }
+  }
 
   _writeLog(chunk) {
     try {

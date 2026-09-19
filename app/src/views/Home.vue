@@ -13,6 +13,10 @@
       @save="onServerBackendSaved"
       @close="onServerSettingsClose"
     ></server-settings-modal>
+    <debug-panel
+      :is-visible="showDebugPanel"
+      @close="showDebugPanel = false"
+    ></debug-panel>
   </div>
 </template>
 
@@ -22,6 +26,7 @@ import NavBar from '@/components/NavBar.vue';
 // import HelloWorld from '@/components/HelloWorld.vue';
 import MainPane from '@/components/MainPane.vue';
 import ServerSettingsModal from '@/components/ServerSettingsModal.vue';
+import DebugPanel from '@/components/DebugPanel.vue';
 import {
   resolveServerBackend,
   coerceServerBackend,
@@ -37,11 +42,13 @@ export default {
     NavBar,
     MainPane,
     ServerSettingsModal,
+    DebugPanel,
   },
   data() {
     return {
       showWelcomeModal: false,
       showServerSettings: false,
+      showDebugPanel: false,
       serverFirstRun: false,
       serverBackendForModal: resolveServerBackend(null, null),
     };
@@ -109,12 +116,19 @@ export default {
       this.serverFirstRun = false;
       this.showServerSettings = true;
     });
+
+    // Debug Log panel (Help menu / Cmd+Shift+D). Toggle, so the shortcut
+    // doubles as hide.
+    subscribe('show-debug-panel', () => {
+      this.showDebugPanel = !this.showDebugPanel;
+    });
   },
   beforeDestroy() {
     // Clean up listeners
     removeListeners('pref-response');
     removeListeners('show-welcome-modal');
     removeListeners('show-server-settings');
+    removeListeners('show-debug-panel');
   },
 };
 </script>
