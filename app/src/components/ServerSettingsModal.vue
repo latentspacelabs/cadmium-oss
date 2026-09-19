@@ -678,7 +678,11 @@ export default {
         if (optimizing && optimizing.phase === 'loading') {
           return { status: 'building', detail: t('Starting up (~20 s)') };
         }
-        return { status: 'building', detail: t('Optimizing for this computer — one-time, a few minutes') };
+        // No probe signal (the gap-closer's brief compile, Windows DML, or
+        // a probe failure): don't claim "one-time, a few minutes" — during
+        // the routine warm start this row is building for ~20s on every
+        // single launch.
+        return { status: 'building', detail: t('Preparing hardware acceleration…') };
       }
       if (cap.active === 'coreml') {
         return { status: 'ok', detail: t('Hardware accelerated (Apple GPU / Neural Engine)') };

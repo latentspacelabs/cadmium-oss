@@ -712,6 +712,60 @@ describe('SidecarManager — optimization progress', () => {
     await h.manager.refreshHealth();
     expect(h.manager.getStatus().optimizing).toBeNull();
   });
+
+  it('a segment-only compile does not decorate the AnT probe onto the UI', async () => {
+    // The probe counts the AnT bucket's partitions; a gap-closer compile
+    // reporting `building` must not surface a frozen (wrong-model) percent.
+    const SEGMENT_BUILDING = {
+      status: 'ok',
+      acceleration: {
+        colorize: { planned: 'cpu', active: 'cpu', reason: null },
+        segment: { planned: 'coreml', active: 'building', reason: null },
+      },
+    };
+    const h = makeHarness({
+      health: () => SEGMENT_BUILDING,
+      managerOptions: {
+        buildingPollMaxMs: 0,
+        probeOptimizeFn: async () => ({ done: 0, total: 42 }),
+      },
+    });
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).toBeNull();
+  });
+
+  it('a probe resolving across a stop() cannot resurrect the episode', async () => {
+    let resolveProbe;
+    const h = makeHarness({
+      health: () => BUILDING_HEALTH,
+      childOptions: { exitOnSigterm: true },
+      managerOptions: {
+        buildingPollMaxMs: 0,
+        probeOptimizeFn: () => new Promise((resolve) => { resolveProbe = resolve; }),
+      },
+    });
+    await h.manager.ensureStarted();
+    const refresh = h.manager.refreshHealth(); // probe now pending
+    await Promise.resolve();
+    await h.manager.stop(); // bumps generation, resets the episode
+    resolveProbe({ done: 42, total: 42 }); // stale result lands late
+    await refresh;
+    expect(h.manager.optimizeProgress).toBeNull();
+    expect(h.manager._optimizePhase).toBeNull();
+  });
+
+  it('concurrent refreshHealth calls coalesce into one /health fetch', async () => {
+    let fetches = 0;
+    const h = makeHarness({
+      health: () => { fetches += 1; return BUILDING_HEALTH; },
+      managerOptions: { buildingPollMaxMs: 0 },
+    });
+    await h.manager.ensureStarted();
+    const before = fetches;
+    await Promise.all([h.manager.refreshHealth(), h.manager.refreshHealth()]);
+    expect(fetches).toBe(before + 1);
+  });
 });
 
 // ---------------------------------------------------------------------------

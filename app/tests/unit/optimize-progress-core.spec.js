@@ -5,6 +5,9 @@ import {
   resolveOptimizePhase,
   healthReportsBuilding,
   statusReportsBuilding,
+  healthCapabilityBuilding,
+  compilingProgress,
+  LOADING_PHASE_MAX_MS,
 } from '@/util/optimize-progress-core';
 
 // The CoreML optimization-progress signal: partition counting, percent
@@ -23,6 +26,15 @@ describe('countCompiledPartitions', () => {
     expect(countCompiledPartitions(['model.txt', '.DS_Store', 'stray'])).toBe(0);
     expect(countCompiledPartitions([])).toBe(0);
     expect(countCompiledPartitions(null)).toBe(0);
+  });
+
+  it('matches exactly <N>_dynamic_mlprogram — stray suffix-alikes do not count', () => {
+    expect(countCompiledPartitions([
+      'old_0_dynamic_mlprogram', // backup copy — no numeric prefix match
+      'x_mlprogram',
+      '0_dynamic_mlprogram.bak',
+      '7_dynamic_mlprogram',
+    ])).toBe(1);
   });
 });
 
@@ -62,6 +74,16 @@ describe('resolveOptimizePhase', () => {
   it('an unknown total reads as compiling (never claims a fast reload)', () => {
     expect(resolveOptimizePhase(null, { done: 0, total: 0 })).toBe('compiling');
   });
+
+  it('a loading episode older than the sanity window re-resolves to compiling', () => {
+    // The first observation can be fooled: all partition dirs on disk while
+    // ORT still assembles the session. A real reload never runs this long.
+    const probe = { done: 42, total: 42 };
+    expect(resolveOptimizePhase('loading', probe, LOADING_PHASE_MAX_MS)).toBe('loading');
+    expect(resolveOptimizePhase('loading', probe, LOADING_PHASE_MAX_MS + 1)).toBe('compiling');
+    // The window never demotes a compiling episode.
+    expect(resolveOptimizePhase('compiling', probe, LOADING_PHASE_MAX_MS + 1)).toBe('compiling');
+  });
 });
 
 describe('healthReportsBuilding / statusReportsBuilding', () => {
@@ -91,5 +113,20 @@ describe('healthReportsBuilding / statusReportsBuilding', () => {
     expect(statusReportsBuilding({ state: 'starting', health: buildingHealth })).toBe(false);
     expect(statusReportsBuilding({ state: 'ready', health: null })).toBe(false);
     expect(statusReportsBuilding(null)).toBe(false);
+  });
+
+  it('healthCapabilityBuilding checks one capability, not any', () => {
+    expect(healthCapabilityBuilding(buildingHealth, 'colorize')).toBe(true);
+    expect(healthCapabilityBuilding(buildingHealth, 'segment')).toBe(false);
+    expect(healthCapabilityBuilding(settledHealth, 'colorize')).toBe(false);
+    expect(healthCapabilityBuilding(null, 'colorize')).toBe(false);
+  });
+
+  it('compilingProgress selects the optimizing signal only for a real compile', () => {
+    const compiling = { phase: 'compiling', done: 10, total: 42, percent: 23, sinceMs: 0 };
+    expect(compilingProgress({ optimizing: compiling })).toBe(compiling);
+    expect(compilingProgress({ optimizing: { ...compiling, phase: 'loading' } })).toBeNull();
+    expect(compilingProgress({ optimizing: null })).toBeNull();
+    expect(compilingProgress(null)).toBeNull();
   });
 });

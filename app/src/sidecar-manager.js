@@ -44,6 +44,7 @@ import {
 import { embeddedBaseUrl } from './util/server-config';
 import {
   healthReportsBuilding,
+  healthCapabilityBuilding,
   computeOptimizeProgress,
   resolveOptimizePhase,
 } from './util/optimize-progress-core';
@@ -203,7 +204,11 @@ export class SidecarManager {
     this.stopGraceMs = stopGraceMs;
     this.buildingPollIntervalMs = buildingPollIntervalMs;
     this.buildingPollMaxMs = buildingPollMaxMs;
-    this._buildingPoll = false;
+    // Generation whose building-poll loop is live (null: none). Generation-
+    // scoped, not a boolean: a stale loop sleeping through a crash-restart
+    // must not suppress the new generation's loop.
+    this._buildingPollGen = null;
+    this._refreshHealthPromise = null;
     this.logFn = logFn;
 
     this.state = SIDECAR_STATES.STOPPED;
@@ -218,7 +223,7 @@ export class SidecarManager {
     // maintained by _updateOptimizeProgress while the report says building.
     this.optimizeProgress = null;
     this._optimizePhase = null; // latched per building episode
-    this._optimizeSince = 0;
+    this._optimizeSince = null; // null = unset (0 is a valid injected-clock time)
 
     this._startingPromise = null;
     this._deliberateStop = false;
@@ -257,19 +262,28 @@ export class SidecarManager {
     };
   }
 
+  /** End the optimization episode: one invariant, one place (see resets). */
+  _resetOptimizeState() {
+    this.optimizeProgress = null;
+    this._optimizePhase = null;
+    this._optimizeSince = null;
+  }
+
   /**
    * Refresh optimizeProgress from the injected probe; returns whether the
    * status-visible value changed (the caller folds that into its push
-   * decision). Never throws; a probe failure keeps the last value.
+   * decision). Never throws; a probe failure keeps the last value. Gated on
+   * the COLORIZE capability specifically — the probe counts the AnT bucket's
+   * partition dirs, and decorating a gap-only compile with that count would
+   * show a frozen 0% (or a false 'loading') for the wrong model.
    */
   async _updateOptimizeProgress() {
-    if (!this.probeOptimizeFn || !healthReportsBuilding(this.lastHealth)) {
+    if (!this.probeOptimizeFn || !healthCapabilityBuilding(this.lastHealth, 'colorize')) {
       const hadValue = this.optimizeProgress !== null;
-      this.optimizeProgress = null;
-      this._optimizePhase = null;
-      this._optimizeSince = 0;
+      this._resetOptimizeState();
       return hadValue; // one final push makes the bar disappear
     }
+    const gen = this._generation;
     let probed = null;
     try {
       probed = await this.probeOptimizeFn(this.paths.coremlCacheDir);
@@ -277,13 +291,17 @@ export class SidecarManager {
       return false;
     }
     if (!probed) return false;
-    if (this._optimizeSince === 0) this._optimizeSince = this.nowFn();
-    this._optimizePhase = resolveOptimizePhase(this._optimizePhase, probed);
+    // A stop()/restart during the probe reset the episode — a stale result
+    // must not resurrect it (the push guard alone can't undo the writes).
+    if (gen !== this._generation || this.state !== SIDECAR_STATES.READY) return false;
+    if (this._optimizeSince === null) this._optimizeSince = this.nowFn();
+    const sinceMs = this.nowFn() - this._optimizeSince;
+    this._optimizePhase = resolveOptimizePhase(this._optimizePhase, probed, sinceMs);
     const prev = this.optimizeProgress;
     const next = {
       phase: this._optimizePhase,
       ...computeOptimizeProgress(probed),
-      sinceMs: this.nowFn() - this._optimizeSince,
+      sinceMs,
     };
     this.optimizeProgress = next;
     // sinceMs advances every tick — exclude it, or identical progress spams.
@@ -297,6 +315,17 @@ export class SidecarManager {
    * building-poll loop below; never throws.
    */
   async refreshHealth() {
+    // Coalesce overlapping refreshes (the building loop and the
+    // 'sidecar:status' IPC both fire-and-forget): concurrent fetches can
+    // otherwise commit /health bodies out of order and briefly resurrect a
+    // settled 'building' report.
+    if (this._refreshHealthPromise) return this._refreshHealthPromise;
+    this._refreshHealthPromise = this._refreshHealthOnce()
+      .finally(() => { this._refreshHealthPromise = null; });
+    return this._refreshHealthPromise;
+  }
+
+  async _refreshHealthOnce() {
     if (this.state !== SIDECAR_STATES.READY) return;
     const gen = this._generation;
     let health = null;
@@ -329,9 +358,12 @@ export class SidecarManager {
    * polled unboundedly).
    */
   async _pollWhileBuilding() {
-    if (this._buildingPoll) return;
-    this._buildingPoll = true;
+    // Reentry guard, scoped to the generation: a stale loop still sleeping
+    // through a crash-restart must not block the new process's loop (it
+    // exits on its own gen check and must only clear its own claim).
+    if (this._buildingPollGen === this._generation) return;
     const gen = this._generation;
+    this._buildingPollGen = gen;
     const deadline = this.nowFn() + this.buildingPollMaxMs;
     try {
       while (
@@ -345,7 +377,7 @@ export class SidecarManager {
         await this.refreshHealth();
       }
     } finally {
-      this._buildingPoll = false;
+      if (this._buildingPollGen === gen) this._buildingPollGen = null;
     }
   }
 
@@ -404,9 +436,7 @@ export class SidecarManager {
       }
     }
     this.lastError = null;
-    this.optimizeProgress = null;
-    this._optimizePhase = null;
-    this._optimizeSince = 0;
+    this._resetOptimizeState();
     this._setState(SIDECAR_STATES.STOPPED);
     return this.getStatus();
   }
@@ -456,9 +486,7 @@ export class SidecarManager {
     this.lastError = null;
     // Each spawn is a fresh optimization episode (the phase latch must not
     // carry a stale 'compiling'/'loading' across restarts).
-    this.optimizeProgress = null;
-    this._optimizePhase = null;
-    this._optimizeSince = 0;
+    this._resetOptimizeState();
     this._setState(SIDECAR_STATES.STARTING);
 
     const args = buildSidecarArgs({

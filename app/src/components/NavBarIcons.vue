@@ -66,6 +66,8 @@ import { mapGetters, mapMutations } from 'vuex';
 import { t } from '@/util/i18n';
 import SidebarItem from '@/components/SidebarItem.vue';
 import { getLastSidecarStatus, onSidecarStatus } from '@/util/sidecar-status';
+import { compilingProgress } from '@/util/optimize-progress-core';
+import { BACKEND_HOSTED } from '@/util/server-config';
 
 import {
   // EXPORT,
@@ -83,6 +85,7 @@ import {
   UPDATE_IN_PROGRESS,
   UPDATE_PERCENTAGE,
   TOOL_CONTROL_ITEM_IS_VISIBLE,
+  SERVER_BACKEND,
 } from '@/store/getter-types';
 
 import {
@@ -133,9 +136,12 @@ export default {
     serverSettingsTippy() { return t('Server settings. Manage the backend, models, and hardware acceleration.'); },
     // The one-time CoreML compile only — never the routine ~20s startup
     // reload (phase 'loading'), which would flash the chip on every launch.
+    // Suppressed on a hosted backend: the embedded sidecar can be compiling
+    // in the background (e.g. after a Test connection) while the user's
+    // runs never touch it.
     optimizeChip() {
-      const o = this.sidecarStatus && this.sidecarStatus.optimizing;
-      return o && o.phase === 'compiling' ? o : null;
+      if (this.serverBackend && this.serverBackend.kind === BACKEND_HOSTED) return null;
+      return compilingProgress(this.sidecarStatus);
     },
     optimizeChipText() {
       return t('Optimizing {{pct}}%', { pct: String(this.optimizeChip.percent) });
@@ -145,6 +151,7 @@ export default {
       updatePercentage: UPDATE_PERCENTAGE,
       sidebarItemVisibleById: TOOL_CONTROL_ITEM_IS_VISIBLE,
       toolItemVisibleById: TOOL_CONTROL_ITEM_IS_VISIBLE,
+      serverBackend: SERVER_BACKEND,
     }),
   },
   mounted() {

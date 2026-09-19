@@ -536,7 +536,14 @@ function getSidecarManager() {
           if (!entry) return null;
           const entries = await fs.promises
             .readdir(path.join(coremlCacheDir, entry.coremlCacheKey))
-            .catch(() => []);
+            .catch((e) => {
+              // Only a missing dir legitimately means "nothing compiled
+              // yet"; any other failure (EACCES, EMFILE, transient I/O)
+              // must throw so the manager keeps the last good value
+              // instead of snapping the bar back to 0%.
+              if (e && e.code === 'ENOENT') return [];
+              throw e;
+            });
           return { done: countCompiledPartitions(entries), total: entry.coremlPartitions };
         }
         : null,
@@ -546,8 +553,15 @@ function getSidecarManager() {
 }
 
 // Spawn if needed and resolve with the outcome (ready or failed).
-ipcMain.handle('sidecar:ensure', (event, opts) => {
-  return getSidecarManager().ensureStarted(opts || {});
+ipcMain.handle('sidecar:ensure', async (event, opts) => {
+  const manager = getSidecarManager();
+  const status = await manager.ensureStarted(opts || {});
+  // Every serving request funnels through here (the connectivity gate), so
+  // a cheap fire-and-forget health refresh un-latches a stale 'building'
+  // snapshot once the building poll has given up (10-min cap) — otherwise
+  // only opening Server Settings would ever clear it.
+  manager.refreshHealth().catch(() => {});
+  return status;
 });
 
 // Status snapshot — never spawns. Also kicks a background /health re-poll so

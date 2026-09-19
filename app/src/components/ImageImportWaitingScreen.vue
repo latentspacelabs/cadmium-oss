@@ -50,7 +50,8 @@ import { t } from '@/util/i18n';
 import { cancelModal } from '@/util/server-client';
 
 import { getLastSidecarStatus, onSidecarStatus } from '@/util/sidecar-status';
-import { statusReportsBuilding } from '@/util/optimize-progress-core';
+import { statusReportsBuilding, compilingProgress } from '@/util/optimize-progress-core';
+import { BACKEND_HOSTED } from '@/util/server-config';
 
 import { mapGetters } from 'vuex';
 
@@ -76,6 +77,7 @@ import {
   ESTIMATED_EXPORT_TIME_IN_SEC,
   CURRENT_PROCESSING_TASK,
   EST_TIME_REMAINING,
+  SERVER_BACKEND,
 } from '@/store/getter-types';
 
 import {
@@ -110,11 +112,16 @@ export default {
     // the run is deliberately served from CPU meanwhile (much slower). With
     // compile progress available, include the percent; without it (Windows
     // DML building, or the ~20s CoreML cache reload) keep the generic line.
+    // Never for exports (they don't touch the backend), and never on a
+    // hosted backend (the embedded sidecar may be compiling in the
+    // background while the run is served remotely at full speed).
     optimizingNote() {
+      if (this.currentTask === TASK_EXPORT) return '';
+      if (this.serverBackend && this.serverBackend.kind === BACKEND_HOSTED) return '';
       const s = this.sidecarStatus;
       if (!statusReportsBuilding(s)) return '';
-      const o = s.optimizing;
-      return o && o.phase === 'compiling'
+      const o = compilingProgress(s);
+      return o
         ? t('The AI backend is still optimizing ({{pct}}%) — this run is slower than usual.', {
           pct: String(o.percent),
         })
@@ -140,6 +147,7 @@ export default {
       currentTask: CURRENT_PROCESSING_TASK,
       analyzeModeOnly: ANALYZE_MODE_ONLY,
       estTimeRemaining: EST_TIME_REMAINING,
+      serverBackend: SERVER_BACKEND,
     }),
     numTotal() {
       if (this.currentTask === TASK_EXPORT) {
