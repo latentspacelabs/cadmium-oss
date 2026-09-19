@@ -136,7 +136,7 @@
   "Draw Options:": "Draw Options:",
   "draw over/under/within existing pixels": "draw over/under/within existing pixels",
   "Edit": "Edit",
-  "Embedded (this computer)": "Embedded (this computer)",
+  "On device": "On device",
   "Embedded backend failed": "Embedded backend failed",
   "Embedded backend is not available — see the status above.": "Embedded backend is not available — see the status above.",
   "Empty Palette": "Empty Palette",
