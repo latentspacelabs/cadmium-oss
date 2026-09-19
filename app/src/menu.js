@@ -3,7 +3,7 @@ const { app, Menu, webContents } = require('electron');
 
 import { t } from './util/i18n';
 
-import { getWebContents, showSupportDialog } from './background';
+import { getWebContents } from './background';
 import {
   SAVE_FILE,
   OPEN_FILE_DIALOG,
@@ -510,13 +510,6 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         label: t('Reset Embedded Backend…'),
         click: () => {
           getWebContents().send('reset-embedded-request', true);
-        },
-      },
-      { type: 'separator' },
-      {
-        label: t('Contact Support'),
-        click: () => {
-          showSupportDialog();
         },
       },
     ],
