@@ -33,7 +33,11 @@ import {
   SERVER_BACKEND_PREF_KEY,
 } from '@/util/server-config';
 import { SET_SERVER_BACKEND } from '@/store/mutation-types';
-import { requestPref, subscribe, removeListeners } from '@/platform';
+import {
+  requestPref, subscribe, removeListeners, resetEmbeddedBackend,
+} from '@/platform';
+import { t } from '@/util/i18n';
+import showCustomDialog from '@/util/customDialog';
 
 export default {
   name: 'home',
@@ -65,6 +69,20 @@ export default {
     onOpenServerSettings() {
       this.serverFirstRun = false;
       this.showServerSettings = true;
+    },
+    // Menu → confirm → wipe models/caches/ledger and relaunch as a first
+    // run (the main process handles the wipe; see sidecar:reset-embedded).
+    async onResetEmbeddedRequest() {
+      const { response } = await showCustomDialog({
+        title: t('Reset Embedded Backend'),
+        message: t('Deletes the downloaded models and caches, then restarts '
+          + 'Cadmium as a first run. Your projects are not affected.'),
+        buttons: [t('Reset and restart'), t('Cancel')],
+        defaultId: 1,
+        cancelId: 1,
+        type: 'warning',
+      });
+      if (response === 0) resetEmbeddedBackend().catch(() => {});
     },
     onServerBackendSaved(backend) {
       this.serverBackendForModal = backend;
@@ -117,10 +135,15 @@ export default {
       this.showServerSettings = true;
     });
 
-    // Debug Log panel (Help menu / Cmd+Shift+D). Toggle, so the shortcut
+    // Debug Log panel (Support menu / Cmd+Shift+D). Toggle, so the shortcut
     // doubles as hide.
     subscribe('show-debug-panel', () => {
       this.showDebugPanel = !this.showDebugPanel;
+    });
+
+    // Reset Embedded Backend… (Support menu): confirm, then reset.
+    subscribe('reset-embedded-request', () => {
+      this.onResetEmbeddedRequest();
     });
   },
   beforeDestroy() {
@@ -129,6 +152,7 @@ export default {
     removeListeners('show-welcome-modal');
     removeListeners('show-server-settings');
     removeListeners('show-debug-panel');
+    removeListeners('reset-embedded-request');
   },
 };
 </script>

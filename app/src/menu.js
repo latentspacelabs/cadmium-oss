@@ -457,10 +457,10 @@ export async function mainMenuFactory(colorizationInProgress = false) {
     ],
   };
 
-  // Help Menu
+  // Support menu (formerly Help). Deliberately NOT role: 'help' — macOS
+  // appends its own search field to the help-role menu, which we don't want.
   const helpMenu = {
-    role: 'help',
-    label: t('Help'),
+    label: t('Support'),
     submenu: [
       {
         label: t('Learn More'),
@@ -480,6 +480,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
           await shell.openExternal('https://github.com/latentspacelabs/cadmium-oss/blob/main/LICENSE');
         },
       },
+      { type: 'separator' },
       {
         label: t('Launch Tour'),
         click: () => {
@@ -494,6 +495,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
           webContents.send('show-welcome-modal', true);
         },
       },
+      { type: 'separator' },
       {
         // Toggles the live sidecar/backend log stream (renderer panel).
         label: t('Debug Log'),
@@ -503,9 +505,17 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: t('Support'),
+        // The renderer confirms (styled dialog) and then invokes
+        // sidecar:reset-embedded — wipe models/caches/ledger + relaunch.
+        label: t('Reset Embedded Backend…'),
         click: () => {
-          console.log("SHOW SUPPORT DIALOG");
+          getWebContents().send('reset-embedded-request', true);
+        },
+      },
+      { type: 'separator' },
+      {
+        label: t('Contact Support'),
+        click: () => {
           showSupportDialog();
         },
       },

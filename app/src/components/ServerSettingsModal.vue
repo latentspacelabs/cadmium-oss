@@ -195,35 +195,6 @@
               </template>
             </div>
 
-            <div v-if="!firstRun" class="server-modal__reset">
-              <button
-                v-if="!resetConfirming"
-                class="server-modal__btn server-modal__btn--ghost"
-                @click="resetConfirming = true"
-              >
-                {{ t('Reset embedded backend…') }}
-              </button>
-              <template v-else>
-                <p class="server-modal__hint server-modal__hint--warn">
-                  <!-- eslint-disable-next-line max-len -->
-                  {{ t('Deletes the downloaded models and caches, then restarts Cadmium as a first run. Your projects are not affected.') }}
-                </p>
-                <div class="server-modal__embedded-row">
-                  <button
-                    class="server-modal__btn server-modal__btn--secondary"
-                    @click="resetEmbedded"
-                  >
-                    {{ t('Reset and restart') }}
-                  </button>
-                  <button
-                    class="server-modal__btn server-modal__btn--ghost"
-                    @click="resetConfirming = false"
-                  >
-                    {{ t('Cancel') }}
-                  </button>
-                </div>
-              </template>
-            </div>
           </div>
         </template>
 
@@ -308,7 +279,7 @@ import {
   BACKEND_EMBEDDED,
 } from '@/util/server-config';
 import {
-  setPref, ensureSidecar, getSidecarStatus, stopSidecar, resetEmbeddedBackend,
+  setPref, ensureSidecar, getSidecarStatus, stopSidecar,
   getModelDownloadPlan, downloadModels, cancelModelDownload, getModelDownloadProgress,
   clearDownloadedModels, getSystemCapabilities,
 } from '@/platform';
@@ -365,7 +336,6 @@ export default {
       // Machine capabilities for the embedded hardware check (null until probed).
       capabilities: null,
       // Two-step confirm for "Reset embedded backend…".
-      resetConfirming: false,
       clearConfirming: false,
     };
   },
@@ -551,7 +521,6 @@ export default {
         this.kind = defaultBackendKind(backend, this.firstRun);
         this.url = (backend && backend.baseUrl) || DEFAULT_SERVER_URL;
         this.resetTest();
-        this.resetConfirming = false;
         this.clearConfirming = false;
         this.refreshSidecarStatus();
         this.refreshDownloadPlan();
@@ -710,14 +679,10 @@ export default {
       // the main process re-ensures the sidecar itself after a success.
       downloadModels().catch(() => {});
     },
-    resetEmbedded() {
-      // The main process wipes models/caches/ledger and relaunches the app;
-      // nothing to do here afterwards.
-      resetEmbeddedBackend().catch(() => {});
-    },
     clearModels() {
-      // Unlike resetEmbedded there is no relaunch: refresh status + plan so
-      // the modal flips straight to the "Download models" offer.
+      // No relaunch (unlike the Support menu's Reset Embedded Backend):
+      // refresh status + plan so the modal flips straight to the
+      // "Download models" offer.
       clearDownloadedModels()
         .catch(() => {})
         .then(() => {
