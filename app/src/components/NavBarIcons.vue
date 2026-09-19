@@ -15,6 +15,21 @@
       >
       </el-progress>
     </div>
+    <div
+      v-if="optimizeChip"
+      class="optimize-chip"
+      :content="serverSettingsTippy"
+      v-tippy="{ placement : 'bottom' }"
+      @click="$emit('open-server-settings')"
+    >
+      <span class="optimize-chip__label">{{ optimizeChipText }}</span>
+      <div class="optimize-chip__bar">
+        <div
+          class="optimize-chip__fill"
+          :style="{ width: `${optimizeChip.percent}%` }"
+        ></div>
+      </div>
+    </div>
     <sidebar-item
       class="step-20 step-21"
       :content="segTippy"
@@ -50,6 +65,7 @@
 import { mapGetters, mapMutations } from 'vuex';
 import { t } from '@/util/i18n';
 import SidebarItem from '@/components/SidebarItem.vue';
+import { getLastSidecarStatus, onSidecarStatus } from '@/util/sidecar-status';
 
 import {
   // EXPORT,
@@ -89,6 +105,7 @@ export default {
       },
       refIconUrl: require('../assets/icons/referenceFolder.svg'),
       referenceToolId: TOOL_CONTROLS_ID_REFERENCE,
+      sidecarStatus: getLastSidecarStatus(),
       items: [
         // {
         //   title: 'Export',
@@ -114,12 +131,29 @@ export default {
     segTippy() { return t('Analyze settings. In here you can adjust how Cadmium detects gaps and color areas.'); },
     refPanelTippy() { return t('Reference Panel. Import reference images to pick colors from.'); },
     serverSettingsTippy() { return t('Server settings. Manage the backend, models, and hardware acceleration.'); },
+    // The one-time CoreML compile only — never the routine ~20s startup
+    // reload (phase 'loading'), which would flash the chip on every launch.
+    optimizeChip() {
+      const o = this.sidecarStatus && this.sidecarStatus.optimizing;
+      return o && o.phase === 'compiling' ? o : null;
+    },
+    optimizeChipText() {
+      return t('Optimizing {{pct}}%', { pct: String(this.optimizeChip.percent) });
+    },
     ...mapGetters({
       updateInProgress: UPDATE_IN_PROGRESS,
       updatePercentage: UPDATE_PERCENTAGE,
       sidebarItemVisibleById: TOOL_CONTROL_ITEM_IS_VISIBLE,
       toolItemVisibleById: TOOL_CONTROL_ITEM_IS_VISIBLE,
     }),
+  },
+  mounted() {
+    this.unsubscribeSidecar = onSidecarStatus((status) => {
+      this.sidecarStatus = status;
+    });
+  },
+  beforeDestroy() {
+    if (this.unsubscribeSidecar) this.unsubscribeSidecar();
   },
   methods: {
     onSidebarItemClick(itemType) {
@@ -210,6 +244,44 @@ export default {
 
 .el-progress-bar__inner{
 
+}
+
+// One-time model-optimization chip: label + tiny bar, click opens Server
+// Settings. Plain divs (not el-progress) so the unscoped .el-progress-bar__*
+// overrides above don't fight its styling.
+.optimize-chip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  margin-right: 8px;
+  padding: 0 6px;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.optimize-chip__label {
+  color: #c5c5c5;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.optimize-chip__bar {
+  width: 90px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.optimize-chip__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: #4a90d9;
+  transition: width 0.3s ease;
 }
 
 .referencePanelButton {

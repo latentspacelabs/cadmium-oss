@@ -25,6 +25,8 @@
                         {{ progressPercentage }}% • {{ timeRemainingString }} {{ remainingText }}
                     </div>
 
+                    <p v-if="optimizingNote" class="optimizing-note">{{ optimizingNote }}</p>
+
                     <!-- Cancel button -->
                     <round-button
                       :text="cancelBtnText"
@@ -46,6 +48,9 @@
 import { t } from '@/util/i18n';
 
 import { cancelModal } from '@/util/server-client';
+
+import { getLastSidecarStatus, onSidecarStatus } from '@/util/sidecar-status';
+import { statusReportsBuilding } from '@/util/optimize-progress-core';
 
 import { mapGetters } from 'vuex';
 
@@ -87,9 +92,34 @@ export default {
   data() {
     return {
       TASK_COLOR_UPDATE,
+      sidecarStatus: getLastSidecarStatus(),
     };
   },
+  mounted() {
+    // The component stays mounted (the v-if is on the inner div), so one
+    // subscription covers every run.
+    this.unsubscribeSidecar = onSidecarStatus((status) => {
+      this.sidecarStatus = status;
+    });
+  },
+  beforeDestroy() {
+    if (this.unsubscribeSidecar) this.unsubscribeSidecar();
+  },
   computed: {
+    // Warn while the backend is still building its accelerated sessions:
+    // the run is deliberately served from CPU meanwhile (much slower). With
+    // compile progress available, include the percent; without it (Windows
+    // DML building, or the ~20s CoreML cache reload) keep the generic line.
+    optimizingNote() {
+      const s = this.sidecarStatus;
+      if (!statusReportsBuilding(s)) return '';
+      const o = s.optimizing;
+      return o && o.phase === 'compiling'
+        ? t('The AI backend is still optimizing ({{pct}}%) — this run is slower than usual.', {
+          pct: String(o.percent),
+        })
+        : t('The AI backend is still optimizing — this run is slower than usual.');
+    },
     ...mapGetters({
       lastSegmentationMapGenerationTime: LAST_SEGMENTATION_MAP_GENERATION_TIME,
       estimatedColorSegTime: ESTIMATED_COLORIZATION_AND_SEGMENTATION_TIME_IN_SEC,
@@ -296,6 +326,12 @@ export default {
   font-size: 14px;
   color: #b0b0b0;
   margin-bottom: 24px;
+}
+
+.optimizing-note {
+  font-size: 13px;
+  color: #e0a640;
+  margin: 0;
 }
 
 .image-import-in-progress-fade-enter-active,

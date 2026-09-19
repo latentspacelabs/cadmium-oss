@@ -42,6 +42,11 @@ import {
   missingAccelFiles,
 } from './util/sidecar-core';
 import { embeddedBaseUrl } from './util/server-config';
+import {
+  healthReportsBuilding,
+  computeOptimizeProgress,
+  resolveOptimizePhase,
+} from './util/optimize-progress-core';
 
 const LOG_MAX_BYTES = 5 * 1024 * 1024;
 const STDERR_TAIL_LINES = 12;
@@ -109,13 +114,6 @@ function defaultDelay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** True while a /health body reports a CoreML compile still in flight. */
-function healthReportsBuilding(health) {
-  const accel = health && health.acceleration;
-  if (!accel) return false;
-  return Object.values(accel).some((cap) => cap && cap.active === 'building');
-}
-
 // Append stream to the sidecar log, with a simple size-capped rotation.
 function defaultCreateLogSink(logDir, logPath) {
   const fs = require('fs');
@@ -157,6 +155,10 @@ export class SidecarManager {
       nowFn = Date.now,
       createLogSinkFn = null,
       registerExitHookFn = defaultRegisterExitHook,
+      // Optimization-progress probe: async (coremlCacheDir) => {done,total}
+      // or null (counts compiled CoreML partition dirs — wired darwin-only
+      // in background.js; see util/optimize-progress-core.js).
+      probeOptimizeFn = null,
       // Status push (background.js forwards to the renderer window).
       onStatus = null,
       // Raw child stdout/stderr tap ('stdout'|'stderr', chunk) — feeds the
@@ -169,8 +171,10 @@ export class SidecarManager {
       maxRestarts = 3,
       stableResetMs = 60000,
       stopGraceMs = 3000,
-      // Building re-poll (see _pollWhileBuilding).
-      buildingPollIntervalMs = 5000,
+      // Building re-poll (see _pollWhileBuilding). 2.5s: the loop only runs
+      // while `building`, which is exactly when a progress bar is visible —
+      // the AnT bucket's 42 partitions land about one per 2.5s.
+      buildingPollIntervalMs = 2500,
       buildingPollMaxMs = 10 * 60 * 1000,
       logFn = (...args) => console.log('[sidecar]', ...args),
     } = opts;
@@ -189,6 +193,7 @@ export class SidecarManager {
     this.createLogSinkFn = createLogSinkFn
       || (() => defaultCreateLogSink(this.paths.logDir, this.paths.logPath));
     this.registerExitHookFn = registerExitHookFn;
+    this.probeOptimizeFn = probeOptimizeFn;
     this.onStatus = onStatus;
     this.onChildOutput = onChildOutput;
     this.readinessTimeoutMs = readinessTimeoutMs;
@@ -209,6 +214,11 @@ export class SidecarManager {
     // Last parsed /health body (null when the probe returned a bare 200).
     // Only meaningful while READY — getStatus gates it on state.
     this.lastHealth = null;
+    // Optimization progress ({phase, done, total, percent, sinceMs} | null),
+    // maintained by _updateOptimizeProgress while the report says building.
+    this.optimizeProgress = null;
+    this._optimizePhase = null; // latched per building episode
+    this._optimizeSince = 0;
 
     this._startingPromise = null;
     this._deliberateStop = false;
@@ -242,7 +252,42 @@ export class SidecarManager {
       // The sidecar's last /health body (acceleration report etc.); null
       // unless READY, so a stale report never outlives its process.
       health: this.state === SIDECAR_STATES.READY ? this.lastHealth : null,
+      // CoreML optimization progress; same READY gating as health.
+      optimizing: this.state === SIDECAR_STATES.READY ? this.optimizeProgress : null,
     };
+  }
+
+  /**
+   * Refresh optimizeProgress from the injected probe; returns whether the
+   * status-visible value changed (the caller folds that into its push
+   * decision). Never throws; a probe failure keeps the last value.
+   */
+  async _updateOptimizeProgress() {
+    if (!this.probeOptimizeFn || !healthReportsBuilding(this.lastHealth)) {
+      const hadValue = this.optimizeProgress !== null;
+      this.optimizeProgress = null;
+      this._optimizePhase = null;
+      this._optimizeSince = 0;
+      return hadValue; // one final push makes the bar disappear
+    }
+    let probed = null;
+    try {
+      probed = await this.probeOptimizeFn(this.paths.coremlCacheDir);
+    } catch (e) {
+      return false;
+    }
+    if (!probed) return false;
+    if (this._optimizeSince === 0) this._optimizeSince = this.nowFn();
+    this._optimizePhase = resolveOptimizePhase(this._optimizePhase, probed);
+    const prev = this.optimizeProgress;
+    const next = {
+      phase: this._optimizePhase,
+      ...computeOptimizeProgress(probed),
+      sinceMs: this.nowFn() - this._optimizeSince,
+    };
+    this.optimizeProgress = next;
+    // sinceMs advances every tick — exclude it, or identical progress spams.
+    return !prev || prev.done !== next.done || prev.phase !== next.phase;
   }
 
   /**
@@ -262,9 +307,11 @@ export class SidecarManager {
     }
     if (gen !== this._generation || this.state !== SIDECAR_STATES.READY) return;
     if (!health || typeof health !== 'object') return;
-    const changed = JSON.stringify(health) !== JSON.stringify(this.lastHealth);
+    const healthChanged = JSON.stringify(health) !== JSON.stringify(this.lastHealth);
     this.lastHealth = health;
-    if (changed && this.onStatus) this.onStatus(this.getStatus());
+    const progressChanged = await this._updateOptimizeProgress();
+    if (gen !== this._generation || this.state !== SIDECAR_STATES.READY) return;
+    if ((healthChanged || progressChanged) && this.onStatus) this.onStatus(this.getStatus());
     // An IPC-triggered refresh can be the first to see a `building` report
     // (no-op while the loop below already runs).
     this._pollWhileBuilding();
@@ -357,6 +404,9 @@ export class SidecarManager {
       }
     }
     this.lastError = null;
+    this.optimizeProgress = null;
+    this._optimizePhase = null;
+    this._optimizeSince = 0;
     this._setState(SIDECAR_STATES.STOPPED);
     return this.getStatus();
   }
@@ -404,6 +454,11 @@ export class SidecarManager {
     }
     const gen = ++this._generation;
     this.lastError = null;
+    // Each spawn is a fresh optimization episode (the phase latch must not
+    // carry a stale 'compiling'/'loading' across restarts).
+    this.optimizeProgress = null;
+    this._optimizePhase = null;
+    this._optimizeSince = 0;
     this._setState(SIDECAR_STATES.STARTING);
 
     const args = buildSidecarArgs({

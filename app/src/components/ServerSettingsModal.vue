@@ -99,16 +99,24 @@
               <div
                 v-for="row in accelRows"
                 :key="row.key"
-                class="server-modal__caps-row"
+                class="server-modal__caps-item"
               >
-                <span
-                  class="server-modal__caps-icon"
-                  :class="`server-modal__caps-icon--${row.status}`"
-                >{{ capIconSymbol(row.status) }}</span>
-                <span class="server-modal__caps-name server-modal__caps-name--accel">
-                  {{ row.label }}
-                </span>
-                <span class="server-modal__caps-detail">{{ row.detail }}</span>
+                <div class="server-modal__caps-row">
+                  <span
+                    class="server-modal__caps-icon"
+                    :class="`server-modal__caps-icon--${row.status}`"
+                  >{{ capIconSymbol(row.status) }}</span>
+                  <span class="server-modal__caps-name server-modal__caps-name--accel">
+                    {{ row.label }}
+                  </span>
+                  <span class="server-modal__caps-detail">{{ row.detail }}</span>
+                </div>
+                <div v-if="row.progress != null" class="server-modal__progress">
+                  <div
+                    class="server-modal__progress-fill"
+                    :style="{ width: `${row.progress}%` }"
+                  ></div>
+                </div>
               </div>
             </div>
 
@@ -528,8 +536,10 @@ export default {
       const accel = s && s.health && s.health.acceleration;
       if (!accel) return [];
       return [
-        { key: 'colorize', label: t('Colorize'), ...this.accelPresentation(accel.colorize) },
-        { key: 'segment', label: t('Gap closing'), ...this.accelPresentation(accel.segment) },
+        // The optimizing signal (compile percent) decorates the colorize row
+        // only — the AnT bucket is the multi-partition compile it measures.
+        { key: 'colorize', label: t('Colorize'), ...this.accelPresentation(accel.colorize, s.optimizing) },
+        { key: 'segment', label: t('Gap closing'), ...this.accelPresentation(accel.segment, null) },
       ];
     },
   },
@@ -610,7 +620,7 @@ export default {
     },
     capIconSymbol(status) {
       return {
-        ok: '✓', warn: '!', blocked: '✕', info: 'ℹ', unknown: '–',
+        ok: '✓', warn: '!', blocked: '✕', info: 'ℹ', building: '⏳', unknown: '–',
       }[status] || '–';
     },
     humanPlatform(platform) {
@@ -649,11 +659,26 @@ export default {
     },
     // { planned, active, reason } from the sidecar → an icon status + text.
     // CPU with a reason is a degradation (warn + why); CPU without one is
-    // by-design (info). `building` is the one-time CoreML compile window.
-    accelPresentation(cap) {
+    // by-design (info). `building` is the one-time CoreML compile window —
+    // when the app's partition-count probe has data (`optimizing`), it says
+    // whether this is the real compile (percent + bar) or just the routine
+    // ~20s reload of an already-compiled model.
+    accelPresentation(cap, optimizing) {
       if (!cap) return { status: 'unknown', detail: t('Unknown') };
       if (cap.active === 'building') {
-        return { status: 'info', detail: t('Optimizing for this computer — one-time, a few minutes') };
+        if (optimizing && optimizing.phase === 'compiling') {
+          return {
+            status: 'building',
+            detail: t('Optimizing for this computer — {{pct}}% (one-time)', {
+              pct: String(optimizing.percent),
+            }),
+            progress: optimizing.percent,
+          };
+        }
+        if (optimizing && optimizing.phase === 'loading') {
+          return { status: 'building', detail: t('Starting up (~20 s)') };
+        }
+        return { status: 'building', detail: t('Optimizing for this computer — one-time, a few minutes') };
       }
       if (cap.active === 'coreml') {
         return { status: 'ok', detail: t('Hardware accelerated (Apple GPU / Neural Engine)') };
@@ -931,6 +956,15 @@ export default {
   &--warn { color: #e0a640; }
   &--blocked { color: #d9534f; }
   &--info { color: #4a90d9; }
+  &--building { color: #4a90d9; }
+}
+
+// A caps row plus its optional compile-progress bar (the bar reuses the
+// generic .server-modal__progress styles below the download block).
+.server-modal__caps-item {
+  .server-modal__progress {
+    margin: 0.15rem 0 0.3rem 1.5rem;
+  }
 }
 
 .server-modal__caps-name {

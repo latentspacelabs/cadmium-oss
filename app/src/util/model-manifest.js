@@ -46,6 +46,10 @@ const MODEL_FILES = [
     bytes: 1388610048,
     sha256: 'babc96305b0aabdcfb6d6901c46f4493d82059cf9546c854c9799590e4bab4a3',
     coremlCacheKey: 'antv2fp32bucketaf4a4194362fd6ef81d6df2d8d653372',
+    // N_dynamic_mlprogram dirs ORT's CoreML EP writes for this model — the
+    // app's compile-progress denominator (util/optimize-progress-core.js).
+    // Re-count after any ORT upgrade (partitioning can change).
+    coremlPartitions: 42,
     required: false,
     platform: 'darwin',
   },
@@ -89,6 +93,8 @@ const MODEL_FILES = [
     bytes: 497519940,
     sha256: '6e5347a74e161558b055047dba65453ed532b556eaacc038a9c2e9f580c96090',
     coremlCacheKey: 'gapcloserfp32bucket1f1966b41c04a8b406ff8d16c54cbfa3',
+    // Single-partition compile (see coremlPartitions note on the AnT bucket).
+    coremlPartitions: 1,
     required: false,
     platform: 'darwin',
   },

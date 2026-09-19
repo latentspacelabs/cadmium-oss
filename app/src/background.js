@@ -33,6 +33,7 @@ import { isProduction } from './util/app-util';
 import { legacyServerUrlToBackend, SERVER_BACKEND_PREF_KEY } from './util/server-config';
 import { createSidecarManager } from './sidecar-manager';
 import { createDebugLog, accelerationTransitionLines } from './util/debug-log-core';
+import { countCompiledPartitions } from './util/optimize-progress-core';
 import {
   LEDGER_FILE, manifestHash, decideLaunch, stampUpdatingTo,
   filesNeedingVerification, recordVerification,
@@ -523,6 +524,22 @@ function getSidecarManager() {
       onChildOutput: (stream, chunk) => {
         getDebugLog().appendChunk(stream === 'stderr' ? 'sidecar-err' : 'sidecar', chunk);
       },
+      // Optimization progress: count the CoreML partition dirs ORT writes
+      // incrementally while the AnT bucket compiles (the only multi-partition
+      // compile — the manifest carries the denominator). Missing dir → 0,
+      // which is correct before the compile has written anything.
+      probeOptimizeFn: process.platform === 'darwin'
+        ? async (coremlCacheDir) => {
+          const entry = MODEL_FILES.find(
+            (m) => m.coremlCacheKey && m.coremlPartitions > 1,
+          );
+          if (!entry) return null;
+          const entries = await fs.promises
+            .readdir(path.join(coremlCacheDir, entry.coremlCacheKey))
+            .catch(() => []);
+          return { done: countCompiledPartitions(entries), total: entry.coremlPartitions };
+        }
+        : null,
     });
   }
   return sidecarManager;

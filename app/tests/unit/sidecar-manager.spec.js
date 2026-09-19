@@ -596,6 +596,124 @@ describe('SidecarManager — health body / acceleration report', () => {
   });
 });
 
+describe('SidecarManager — optimization progress', () => {
+  const BUILDING_HEALTH = {
+    status: 'ok',
+    acceleration: {
+      colorize: { planned: 'coreml', active: 'building', reason: null },
+      segment: { planned: 'cpu', active: 'cpu', reason: null },
+    },
+  };
+  const SETTLED_HEALTH = {
+    status: 'ok',
+    acceleration: {
+      colorize: { planned: 'coreml', active: 'coreml', reason: null },
+      segment: { planned: 'cpu', active: 'cpu', reason: null },
+    },
+  };
+
+  // buildingPollMaxMs: 0 disables the fire-and-forget building loop so each
+  // test drives refreshHealth() by hand, deterministically.
+  function makeOptimizeHarness(probe, extra = {}) {
+    return makeHarness({
+      health: () => BUILDING_HEALTH,
+      managerOptions: { buildingPollMaxMs: 0, probeOptimizeFn: probe, ...extra },
+    });
+  }
+
+  it('exposes {phase, done, total, percent} while building, gated on ready', async () => {
+    const h = makeOptimizeHarness(async () => ({ done: 10, total: 42 }));
+    await h.manager.ensureStarted();
+    expect(h.manager.getStatus().optimizing).toBeNull(); // no probe ran yet
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).toEqual({
+      phase: 'compiling', done: 10, total: 42, percent: 23, sinceMs: 0,
+    });
+  });
+
+  it('pushes on progress advance even when the health body is unchanged', async () => {
+    let done = 10;
+    const h = makeOptimizeHarness(async () => ({ done, total: 42 }));
+    await h.manager.ensureStarted();
+    const pushes = h.statuses.length;
+
+    await h.manager.refreshHealth(); // first probe → push
+    expect(h.statuses.length).toBe(pushes + 1);
+
+    await h.manager.refreshHealth(); // same done, same health → no push
+    expect(h.statuses.length).toBe(pushes + 1);
+
+    done = 20;
+    await h.manager.refreshHealth(); // progress advanced → push
+    expect(h.statuses.length).toBe(pushes + 2);
+    expect(h.statuses[h.statuses.length - 1].optimizing.percent).toBe(47);
+  });
+
+  it('one final push clears optimizing when building ends', async () => {
+    const h = makeOptimizeHarness(async () => ({ done: 40, total: 42 }));
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).not.toBeNull();
+
+    h.health = () => SETTLED_HEALTH;
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).toBeNull();
+    expect(h.statuses[h.statuses.length - 1].optimizing).toBeNull();
+  });
+
+  it('a full partition set at the first observation reads as loading', async () => {
+    const h = makeOptimizeHarness(async () => ({ done: 42, total: 42 }));
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    const { optimizing } = h.manager.getStatus();
+    expect(optimizing.phase).toBe('loading');
+    expect(optimizing.percent).toBe(99);
+  });
+
+  it('a throwing probe neither crashes nor pushes, and keeps the last value', async () => {
+    let shouldThrow = false;
+    const h = makeOptimizeHarness(async () => {
+      if (shouldThrow) throw new Error('readdir failed');
+      return { done: 10, total: 42 };
+    });
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    const before = h.manager.getStatus().optimizing;
+    const pushes = h.statuses.length;
+
+    shouldThrow = true;
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).toEqual(before);
+    expect(h.statuses.length).toBe(pushes);
+  });
+
+  it('stop() clears the progress state', async () => {
+    const h = makeHarness({
+      health: () => BUILDING_HEALTH,
+      childOptions: { exitOnSigterm: true },
+      managerOptions: {
+        buildingPollMaxMs: 0,
+        probeOptimizeFn: async () => ({ done: 10, total: 42 }),
+      },
+    });
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    await h.manager.stop();
+    expect(h.manager.getStatus().optimizing).toBeNull();
+    expect(h.manager.optimizeProgress).toBeNull();
+  });
+
+  it('without a probe (the default), optimizing stays null even while building', async () => {
+    const h = makeHarness({
+      health: () => BUILDING_HEALTH,
+      managerOptions: { buildingPollMaxMs: 0 },
+    });
+    await h.manager.ensureStarted();
+    await h.manager.refreshHealth();
+    expect(h.manager.getStatus().optimizing).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Accelerator-model visibility (Serving Profile, Phase 2)
 // ---------------------------------------------------------------------------

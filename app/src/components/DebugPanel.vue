@@ -87,13 +87,14 @@ export default {
       if (!status) return '';
       const accel = status.health && status.health.acceleration;
       if (!accel) return status.state || '';
-      return Object.keys(accel)
-        .map((name) => {
-          const cap = accel[name];
-          if (!cap || !cap.active) return `${name}: —`;
-          return `${name}: ${cap.active}${cap.reason ? ` (${cap.reason})` : ''}`;
-        })
-        .join(' · ');
+      const parts = Object.keys(accel).map((name) => {
+        const cap = accel[name];
+        if (!cap || !cap.active) return `${name}: —`;
+        return `${name}: ${cap.active}${cap.reason ? ` (${cap.reason})` : ''}`;
+      });
+      const o = status.optimizing;
+      if (o) parts.push(`optimizing ${o.phase} ${o.done}/${o.total}`);
+      return parts.join(' · ');
     },
   },
   watch: {
@@ -168,6 +169,11 @@ export default {
   background: #2d2d2d;
   border-top: 1px solid #4e4e4e;
   overflow: hidden;
+  // Above the colorize/analyze overlay (fixed, z-index 100 — see
+  // ImageImportWaitingScreen.vue) so the stream stays visible and usable
+  // during runs; its centered spinner/Stop button are unaffected.
+  position: relative;
+  z-index: 101;
 }
 
 .debug-panel__header {

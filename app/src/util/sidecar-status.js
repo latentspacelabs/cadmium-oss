@@ -10,8 +10,11 @@
  * everyone's subscription, this module's callbacks don't.
  *
  * Status shape (see sidecar-manager.js getStatus): { state, port, baseUrl,
- * pid, lastError, missing, restarts, binPath, modelsDir }. Session-local
- * runtime info only — never persisted, never document state.
+ * pid, lastError, missing, missingAccel, restarts, binPath, modelsDir,
+ * health, optimizing }. `health` is the sidecar's last /health body and
+ * `optimizing` the CoreML compile progress ({phase, done, total, percent,
+ * sinceMs}) — both null unless the sidecar is ready. Session-local runtime
+ * info only — never persisted, never document state.
  */
 
 import { setEmbeddedRuntimePort } from './server-config';
