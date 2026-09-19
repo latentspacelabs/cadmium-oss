@@ -17,7 +17,7 @@
         class="debug-panel__line"
         :class="`debug-panel__line--${entry.source}`"
       >
-        <span class="debug-panel__ts">{{ formatTs(entry.ts) }}</span>{{ entry.line }}
+        <span class="debug-panel__ts">{{ formatTs(entry.ts) }} </span>{{ entry.line }}
       </div>
       <div v-if="!visibleEntries.length" class="debug-panel__empty">
         {{ t('No log output yet. Run a colorization to start the local server.') }}

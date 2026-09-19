@@ -64,6 +64,17 @@ describe('createDebugLog — appendChunk', () => {
     expect(log.appendChunk('sidecar', 'y\n')[0].line).toBe('y');
   });
 
+  it('strips the sidecar tracing line\'s own leading timestamp (ts is on the entry)', () => {
+    const log = createDebugLog();
+    const [entry] = log.appendChunk(
+      'sidecar',
+      '2026-09-19T02:42:23.710992Z  INFO cadmium_sidecar::serve::engine: still building\n',
+    );
+    expect(entry.line).toBe('INFO cadmium_sidecar::serve::engine: still building');
+    // Lines without a leading timestamp are untouched.
+    expect(log.append('app', 'state -> ready').line).toBe('state -> ready');
+  });
+
   it('skips blank lines and strips trailing whitespace', () => {
     const log = createDebugLog();
     const lines = log.appendChunk('sidecar', 'a  \n\n   \nb\n');

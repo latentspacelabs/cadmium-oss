@@ -25,6 +25,12 @@ export function stripAnsi(text) {
   return String(text).replace(ANSI_RE, '');
 }
 
+// The sidecar's tracing lines open with their own RFC3339 timestamp. Every
+// entry already carries `ts`, so keeping the embedded one would render a
+// mashed double timestamp (local next to UTC, no less) in the panel — strip
+// it at ingest. The on-disk sidecar.log is unaffected (raw sink).
+const LEADING_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s+/;
+
 /**
  * The ring buffer. All methods are synchronous and never throw; listener
  * errors are swallowed (a broken subscriber must not break logging).
@@ -40,7 +46,7 @@ export function createDebugLog({
   let seq = 0;
 
   function push(source, rawLine) {
-    let line = stripAnsi(rawLine).replace(/\s+$/, '');
+    let line = stripAnsi(rawLine).replace(LEADING_TIMESTAMP_RE, '').replace(/\s+$/, '');
     if (line.length > maxLineChars) line = `${line.slice(0, maxLineChars)}…`;
     const entry = { seq: seq++, ts: nowFn(), source, line };
     ring.push(entry);
