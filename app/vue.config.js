@@ -117,13 +117,24 @@ module.exports = {
               filter: ['libonnxruntime.*.dylib'],
             },
           ],
-          // Unsigned distribution ($0 route — no Apple Developer cert):
-          // ad-hoc signature only (identity: null) with the hardened runtime
-          // OFF (ad-hoc + hardened runtime fails library validation at dyld
-          // time), and no notarization (the afterSign hook is gone). Users
-          // get a Gatekeeper wall on first launch of a downloaded copy. See
-          // docs/build-and-release.md.
-          identity: null,
+          // Self-signed distribution (still the $0 route — no Apple
+          // Developer cert, no notarization): CI supplies the project's
+          // long-lived self-signed cert via CSC_LINK/CSC_KEY_PASSWORD and
+          // electron-builder signs with it. Squirrel.Mac validates an update
+          // against the RUNNING app's signing identity before installing, so
+          // auto-update requires a STABLE identity across versions — ad-hoc
+          // signatures (each build's identity is its own cdhash) made every
+          // mac auto-update fail silently at install. The cert changes
+          // nothing about Gatekeeper: users still get the "Open Anyway" wall
+          // on first launch of a downloaded copy. Losing the cert = one
+          // manual re-download for every user (see docs/build-and-release.md
+          // — keep ~/cadmium-signing backed up). The BUILD machine must
+          // trust the cert (CI's "Trust self-signed signing cert" step;
+          // docs §4 for local) or electron-builder silently falls back to
+          // ad-hoc despite CSC_LINK. Without CSC_LINK (local dev), stay
+          // ad-hoc; hardened runtime stays OFF either way (no notarization
+          // to require it).
+          identity: process.env.CSC_LINK ? undefined : null,
           hardenedRuntime: false,
         },
         win: {

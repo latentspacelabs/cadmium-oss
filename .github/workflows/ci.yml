@@ -7,15 +7,17 @@
 #     GITHUB_TOKEN (public, or same-org private with access). actions/checkout
 #     rewrites the git@github.com: submodule URLs to token-authenticated https.
 #
-# Releases ship UNSIGNED by design (the $0 open-source route — see
-# docs/build-and-release.md): mac gets an ad-hoc signature with the hardened
-# runtime off and no notarization (Gatekeeper wall on first launch of a
-# downloaded copy), win an unsigned
-# installer (SmartScreen "unknown publisher", click-through-able). To
-# re-enable signing later (e.g. SignPath Foundation for win, an Apple
-# Developer cert for mac): unpin mac.identity (null in vue.config.js and
-# electron-builder.json), restore an afterSign notarize hook, and resurrect
-# the CSC_LINK plumbing + eSigner CKA step from git history (pre-2026-07-28).
+# Releases stay on the $0 open-source route (see docs/build-and-release.md):
+# mac is signed with the project's long-lived SELF-SIGNED cert (secrets
+# CSC_LINK/CSC_KEY_PASSWORD; backup in Evan's ~/cadmium-signing) — required
+# because Squirrel.Mac refuses to install an update whose signing identity
+# differs from the running app's, which every ad-hoc build's does. No
+# notarization, hardened runtime off, Gatekeeper "Open Anyway" wall on first
+# launch of a downloaded copy. win ships an unsigned installer (SmartScreen
+# "unknown publisher", click-through-able). To upgrade to real signing later
+# (e.g. SignPath Foundation for win, an Apple Developer cert for mac): swap
+# the p12 behind CSC_LINK, restore an afterSign notarize hook, and resurrect
+# the eSigner CKA step from git history (pre-2026-07-28).
 #
 # Not yet in CI: the verify_* golden harnesses (the multi-GB golden dirs have
 # no durable home yet) and EP runtime checks (CoreML/DirectML need real
@@ -101,14 +103,31 @@ jobs:
       - name: npm ci
         working-directory: app
         run: npm ci
-      # Builds are intentionally unsigned (the $0 route): mac.identity is
-      # pinned null in the builder config, so packaging always produces an
-      # ad-hoc-signed, un-notarized app — release tags included. See the
-      # header comment.
+      # Signed with the project's SELF-SIGNED cert (still the $0 route — no
+      # Apple Developer program, no notarization). Squirrel.Mac refuses to
+      # install an update whose signing identity differs from the running
+      # app's, and ad-hoc identities differ every build — so a stable
+      # self-signed cert is what makes mac auto-update work at all. The cert
+      # lives in the CSC_LINK/CSC_KEY_PASSWORD secrets (source of truth:
+      # Evan's ~/cadmium-signing backup; rotating it costs every user one
+      # manual re-download). Gatekeeper treatment is unchanged (unidentified
+      # developer -> "Open Anyway").
+      #
+      # The trust step below is load-bearing: a self-signed cert that is not
+      # in the runner's trust store fails chain validation, `security
+      # find-identity -v` reports it CSSMERR_TP_NOT_TRUSTED / "0 valid
+      # identities", and electron-builder SILENTLY falls back to ad-hoc
+      # (breaking auto-update again with no build error). codesign-cert.pem
+      # is the PUBLIC half of the CSC_LINK p12 — no secret material. Runners
+      # have passwordless sudo; end users never need to trust the cert
+      # (Squirrel compares identities, it doesn't chain-validate them).
+      - name: Trust self-signed signing cert
+        run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain app/build/codesign-cert.pem
       - name: Package
         working-directory: app
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npm run electron:build -- --mac --arm64 --publish never
       # *.yml = electron-updater feed metadata (latest-mac.yml), needed as a
       # release asset for in-app updates.

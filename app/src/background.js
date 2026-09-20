@@ -1162,6 +1162,36 @@ autoUpdater.on('download-progress', (progressObj) => {
   win.webContents.send('update-percentage', progressObj.percent);
 })
 
+// Updater failures must never be silent: before this handler existed, a
+// Squirrel.Mac install-validation failure after "Install and Restart"
+// simply did nothing (field report, 2026-09-19 — ad-hoc-signed updates can
+// never pass Squirrel's identity check; that's why builds are now signed
+// with the project's stable self-signed cert). Whatever the cause, offer
+// the manual path. Once per session — error events can repeat per check.
+let updateErrorShown = false;
+autoUpdater.on('error', (err) => {
+  console.error('UPDATER ERROR:', err);
+  if (updateErrorShown || !win || !win.webContents) return;
+  updateErrorShown = true;
+  try {
+    win.webContents.send('update-in-progress', false);
+  } catch (e) { /* window mid-teardown */ }
+  showDialogFromMain(win, {
+    title: t('Cadmium Update Failed'),
+    message: t('The update could not be installed automatically.'),
+    detail: t('You can download the latest version manually — your projects and settings are not affected.'),
+    buttons: [t('Open Download Page'), t('Later')],
+    defaultId: 0,
+    cancelId: 1,
+    type: 'warning',
+  }).then((result) => {
+    if (result.response === 0) {
+      // eslint-disable-next-line global-require
+      require('electron').shell.openExternal('https://github.com/latentspacelabs/cadmium-oss/releases/latest');
+    }
+  });
+})
+
 // Exit cleanly on request from parent process in development mode.
 if (isDevelopment) {
   if (process.platform === 'win32') {

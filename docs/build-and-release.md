@@ -142,31 +142,63 @@ is roughly 350–400 billable minutes (~$3–4 in overage); warm runs with
 the Rust cache are about a third. Everything (runs, artifacts, releases)
 carries over unchanged when the repo flips public.
 
-## 4. Signing & notarization — intentionally none (the $0 route)
+## 4. Signing — self-signed cert (still the $0 route), no notarization
 
-Cadmium ships **unsigned** (decided 2026-07-28: the publisher entity is
-winding down, and commercial certs are a poor fit for an OSS project). No
-Apple Developer cert, no Authenticode cert, no notarization. What users see:
+Cadmium ships without any paid certificate (decided 2026-07-28: the
+publisher entity is winding down, and commercial certs are a poor fit for
+an OSS project). Since 2026-09-19, **mac builds are signed with the
+project's long-lived self-signed cert** — not for Gatekeeper (it changes
+nothing there), but because **Squirrel.Mac refuses to install an update
+whose signing identity differs from the running app's**, and an ad-hoc
+identity is a per-build content hash: every mac auto-update from an ad-hoc
+build fails install-validation silently (field-diagnosed on the 1.5.8→1.5.9
+update; the empty `~/Library/Caches/<appId>.ShipIt/` dir is the tell). A
+stable cert = a stable identity = working auto-updates.
 
-- **mac**: ad-hoc signature, hardened runtime off (`mac.identity: null` in
-  `vue.config.js` / `electron-builder.json`; the `afterSign` notarize hook is
-  deleted). A browser-downloaded copy hits the Gatekeeper wall ("Apple cannot
-  check it for malicious software") — since macOS 15 the override lives in
-  System Settings → Privacy & Security → "Open Anyway", not right-click →
-  Open. Document that path wherever the download is offered.
+- **mac**: signed via `CSC_LINK`/`CSC_KEY_PASSWORD` secrets in CI
+  (`vue.config.js` `mac.identity` stays `null` for local builds without
+  `CSC_LINK` → ad-hoc, fine for dev). Hardened runtime off, no
+  notarization, no `afterSign` hook. A browser-downloaded copy still hits
+  the Gatekeeper wall ("unidentified developer") — since macOS 15 the
+  override lives in System Settings → Privacy & Security → "Open Anyway".
+- **The build machine must TRUST the cert** or signing silently degrades:
+  an untrusted self-signed cert fails chain validation, `security
+  find-identity -v` reports `CSSMERR_TP_NOT_TRUSTED` / "0 valid
+  identities", and electron-builder falls back to ad-hoc with only a log
+  line (the p12 still imports fine — "1 identity imported" — which makes
+  this easy to misdiagnose). CI handles it via the "Trust self-signed
+  signing cert" step (`sudo security add-trusted-cert -d -r trustRoot -k
+  /Library/Keychains/System.keychain app/build/codesign-cert.pem` —
+  that pem is the committed PUBLIC half of the cert, no secret material).
+  For a local signed build, once per machine:
+  `security add-trusted-cert -r trustRoot -p codeSign -k
+  ~/Library/Keychains/login.keychain-db ~/cadmium-signing/cert.pem`.
+  End users never need any of this — Squirrel compares the update's
+  identity to the running app's; it doesn't chain-validate the cert.
+- **The cert is continuity-critical**: the p12 + password live in the
+  `CSC_LINK`/`CSC_KEY_PASSWORD` repo secrets, source of truth in Evan's
+  `~/cadmium-signing/` (cert.pem, cadmium-codesign.p12, p12-password.txt —
+  BACK THIS UP off-box; self-signed, CN "Latent Space Labs Code Signing",
+  valid to 2036). Losing or rotating it breaks the Squirrel identity chain
+  once: every installed user needs one manual re-download of the next
+  release (same as the ad-hoc→self-signed transition, which is why
+  1.5.x-ad-hoc installs cannot auto-update to the first signed release).
 - **win**: unsigned NSIS installer — SmartScreen shows the "unknown
   publisher" wall (More info → Run anyway), UAC shows Unknown Publisher, AV
   false-positive odds run higher than for signed binaries, and
   managed/enterprise machines that block unsigned executables by policy
-  can't run it at all.
+  can't run it at all. NSIS does no Squirrel-style identity check, so
+  Windows auto-update works unsigned.
 
-Re-enabling signing later: unpin `mac.identity`, restore an `afterSign`
-notarize hook (git history: `app/notarize.js`, pre-2026-07-28) plus the CI
-`CSC_LINK` plumbing; the Windows eSigner CKA step is likewise in git
-history — though **SignPath Foundation** (free code signing for OSS,
-signpath.org) is the better fit than a paid SSL.com cert if signing
-returns. Timestamped signatures on the previously signed releases stay
-valid regardless of any cert lapse.
+Updater failures are surfaced by the `autoUpdater.on('error')` handler in
+`background.js` (dialog + link to the releases page) — they were silent
+before, which is how the ad-hoc install failure went unnoticed.
+
+Upgrading to real signing later (SignPath Foundation for win — free for
+OSS, signpath.org — or an Apple Developer cert for mac): swap the p12
+behind `CSC_LINK` (accepting the one-time manual-update hop), restore an
+`afterSign` notarize hook (git history: `app/notarize.js`, pre-2026-07-28);
+the Windows eSigner CKA step is likewise in git history.
 
 ## 5. App releases & auto-update
 
