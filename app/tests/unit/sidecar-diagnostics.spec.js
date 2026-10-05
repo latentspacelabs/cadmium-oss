@@ -8,7 +8,7 @@ describe('describeExit', () => {
 
   it('decodes the illegal-instruction status (as reported in the field)', () => {
     expect(describeExit({ code: 3221225501, signal: null }, 'win32'))
-      .toMatch(/^code 3221225501, signal null = 0xC000001D STATUS_ILLEGAL_INSTRUCTION: .*AVX/);
+      .toMatch(/^code 3221225501, signal null = 0xC000001D STATUS_ILLEGAL_INSTRUCTION: .*CPU model/);
   });
 
   it('accepts the signed form of the same status', () => {

@@ -177,8 +177,8 @@ jobs:
       # Start the sidecar under Intel SDE emulating older CPUs (no-AVX
       # Celeron/Nehalem, AVX-only Sandy Bridge, AVX2 Haswell). Field crashes
       # were 0xC000001D STATUS_ILLEGAL_INSTRUCTION at load — this reproduces
-      # that class without the hardware. Results go to the job summary; only
-      # the AVX2 baseline is required to pass (see the script header).
+      # that class without the hardware. Results go to the job summary; every
+      # CPU must start (see the script header).
       - name: Setup Intel SDE
         uses: petarpetrovt/setup-sde@v6.0
       - name: CPU compatibility (SDE)

@@ -8,10 +8,10 @@
 # instructions older CPUs lack. SDE reproduces that deterministically on a
 # CI runner instead of needing the physical hardware.
 #
-# Policy: the AVX2 baseline (Haswell) MUST start — failure there fails the
-# job. Older CPUs are reported in the job summary but don't fail the build
-# until we decide the supported floor (the summary is the evidence for that
-# decision).
+# Policy: every emulated CPU MUST start. Since the switch to Microsoft's
+# ONNX Runtime DLL (2026-10, scripts/fetch-ort-dll.ps1) the sidecar starts on
+# all four, including no-AVX Celeron-class and Nehalem CPUs — so any red row
+# is a regression (e.g. a dependency that starts assuming AVX/AVX2 again).
 #
 # Usage: cpu-compat-sde.ps1 -Exe <path\to\cadmium-sidecar.exe> [-Sde <sde.exe or dir>]
 
@@ -34,9 +34,9 @@ Write-Host "sidecar: $Exe"
 
 # name, SDE flag, required-to-pass
 $cpus = @(
-    @{ Name = 'Goldmont Plus (Celeron N4020-class, no AVX)'; Flag = '-glp'; Required = $false },
-    @{ Name = 'Nehalem (SSE4.2, no AVX)';                    Flag = '-nhm'; Required = $false },
-    @{ Name = 'Sandy Bridge (AVX, no AVX2)';                 Flag = '-snb'; Required = $false },
+    @{ Name = 'Goldmont Plus (Celeron N4020-class, no AVX)'; Flag = '-glp'; Required = $true },
+    @{ Name = 'Nehalem (SSE4.2, no AVX)';                    Flag = '-nhm'; Required = $true },
+    @{ Name = 'Sandy Bridge (AVX, no AVX2)';                 Flag = '-snb'; Required = $true },
     @{ Name = 'Haswell (AVX2 baseline)';                     Flag = '-hsw'; Required = $true }
 )
 
@@ -91,5 +91,5 @@ if ($env:GITHUB_STEP_SUMMARY) { $summary -join "`n" | Out-File -Append -Encoding
 
 $requiredFailures = $results | Where-Object { $_.Required -and $_.Outcome -ne 'ok' }
 if ($requiredFailures) {
-    throw "sidecar failed to start on a REQUIRED CPU baseline: $(($requiredFailures | ForEach-Object Cpu) -join ', ')"
+    throw "sidecar failed to start on a required CPU: $(($requiredFailures | ForEach-Object Cpu) -join ', ')"
 }

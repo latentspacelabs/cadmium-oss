@@ -864,7 +864,7 @@ describe('SidecarManager — field diagnostics', () => {
     h.spawned[0].child.emit('exit', 3221225501, null);
     expect(h.manager.state).toBe(SIDECAR_STATES.FAILED);
     expect(h.spawned.length).toBe(1); // no crash loop
-    expect(h.manager.getStatus().lastError).toMatch(/0xC000001D STATUS_ILLEGAL_INSTRUCTION.*AVX/);
+    expect(h.manager.getStatus().lastError).toMatch(/0xC000001D STATUS_ILLEGAL_INSTRUCTION.*CPU model/);
     expect(lines).toEqual(expect.arrayContaining([expect.stringMatching(/^unsupported CPU/)]));
   });
 
