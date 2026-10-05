@@ -28,9 +28,10 @@
 //! its batched export (`--gap-model-bucket`) is supplied: CoreML on macOS
 //! (coreml/auto, the batch-pinned fp32 export) or DirectML on Windows
 //! (dml/auto, the fp16 export — fp32 batches OOM a 16 GB WDDM card). The
-//! 512x512 tiles are forwarded in fixed batches of `GAP_ACCEL_BATCH`
-//! (~16x faster than the CPU EP on macOS; ~350x on the Windows T4 rig, where
-//! the 4-vCPU CPU path is otherwise multi-second). Otherwise (no export,
+//! 512x512 tiles are forwarded in fixed batches of `GAP_ACCEL_BATCH` on
+//! CoreML (static shapes) and in small unpadded batches of `GAP_DML_BATCH`
+//! on DirectML (~16x faster than the CPU EP on macOS; ~350x on the Windows
+//! T4 rig, where the 4-vCPU CPU path is otherwise multi-second). Otherwise (no export,
 //! unsupported OS, or an EP init failure) it runs on the CPU EP, one tile at
 //! a time.
 
@@ -50,13 +51,20 @@ use crate::tokenize::bucket::{pad_feed_to_bucket, CORPUS_BUCKET};
 use crate::tokenize::feed::AntFeed;
 use crate::tokenize::Tensor;
 
-/// The batch the accelerated gap-closer export (`--gap-model-bucket`) runs.
-/// Tiles are forwarded in chunks of this size, padding the final short chunk
-/// (conv is per-sample, so the pad tiles never affect the real ones). The
-/// CoreML export is statically pinned to this batch; the DirectML fp16 export
-/// has a dynamic batch but is fed the same fixed chunk so one code path serves
-/// both. 24 matches the production `run_segment` batch.
+/// The batch the CoreML gap-closer export (`--gap-model-bucket` on macOS) is
+/// statically pinned to. Tiles are forwarded in chunks of this size, padding
+/// the final short chunk (conv is per-sample, so the pad tiles never affect
+/// the real ones). 24 matches the production `run_segment` batch.
 const GAP_ACCEL_BATCH: usize = 24;
+
+/// DirectML gap-closer chunk size. The DirectML fp16 export has a dynamic
+/// batch, so tiles are sent unpadded in chunks of at most this many. NOT the
+/// CoreML batch: padding every request to 24 tiles of 512x512 (a drawing
+/// needs 2–4) exhausted GPU memory on 16 GB cards — afterwards the AnT
+/// DirectML session returned all-zero logits, then the GPU hung (887A0006)
+/// and every request failed until restart. Reproduced on an NVIDIA T4 in
+/// isolation: gap batch 24 → corrupt AnT; batch 4 → correct (2026-10-05).
+const GAP_DML_BATCH: usize = 4;
 
 // ---------------------------------------------------------------------------
 // EP selection
@@ -187,7 +195,7 @@ pub struct Engine {
     ant: Mutex<Option<Session>>,
     /// Which EP the dynamic AnT session actually landed on (set when it is
     /// built — DirectML can silently fall back to CPU), for per-forward logs.
-    ant_dynamic_ep: std::sync::OnceLock<&'static str>,
+    ant_dynamic_ep: Mutex<&'static str>,
     /// Bucket-pinned AnT model on the CoreML EP.
     ant_bucket: Mutex<Option<BucketState>>,
     /// GATE_* — colorize serves from the dynamic CPU session while the
@@ -435,7 +443,7 @@ impl Engine {
             gap_accel: Mutex::new(None),
             gap_accel_failed: AtomicBool::new(false),
             ant: Mutex::new(None),
-            ant_dynamic_ep: std::sync::OnceLock::new(),
+            ant_dynamic_ep: Mutex::new("?"),
             ant_bucket: Mutex::new(None),
             ant_bucket_gate: AtomicU8::new(GATE_IDLE),
             ant_accel_reason: Mutex::new(ant_reason),
@@ -605,13 +613,30 @@ impl Engine {
                     );
                     return Ok(Some(udfs));
                 }
-                Err(e) => tracing::warn!(
-                    error = %e,
-                    hint = gpu_error_hint(&e),
-                    ep = Self::gap_ep_label(self.gap_ep),
-                    after_ms = t0.elapsed().as_millis() as u64,
-                    "accelerated gap-closer unavailable; falling back to the CPU EP"
-                ),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        hint = gpu_error_hint(&e),
+                        ep = Self::gap_ep_label(self.gap_ep),
+                        after_ms = t0.elapsed().as_millis() as u64,
+                        "accelerated gap-closer unavailable; falling back to the CPU EP"
+                    );
+                    // A lost GPU stays lost: stop retrying it on every request
+                    // and free its session (the CPU path takes over).
+                    if is_gpu_device_lost(&e) {
+                        self.gap_accel_failed.store(true, Ordering::SeqCst);
+                        Self::note_accel_reason(
+                            &self.gap_accel_reason,
+                            &format!(
+                                "GPU stopped responding during segmentation ({}); gap closing moved to the CPU until restart",
+                                gpu_error_hint(&e)
+                            ),
+                        );
+                        if let Ok(mut g) = self.gap_accel.lock() {
+                            *g = None;
+                        }
+                    }
+                }
             }
         }
         let t0 = Instant::now();
@@ -701,11 +726,18 @@ impl Engine {
             .as_mut()
             .ok_or("gap accelerator session unavailable (build failed)")?;
         let tile_len = TILE_SIZE * TILE_SIZE;
+        // CoreML: the export is pinned to GAP_ACCEL_BATCH — pad every chunk.
+        // DirectML: dynamic batch — send only real tiles, a few at a time.
+        let (chunk, pad) = match self.gap_ep {
+            GapEp::Dml => (GAP_DML_BATCH, false),
+            _ => (GAP_ACCEL_BATCH, true),
+        };
         let mut udfs: Vec<Vec<f32>> = Vec::with_capacity(tiles.len());
         let mut start = 0;
         while start < tiles.len() {
-            let end = (start + GAP_ACCEL_BATCH).min(tiles.len());
-            let mut batch = vec![0f32; GAP_ACCEL_BATCH * tile_len];
+            let end = (start + chunk).min(tiles.len());
+            let batch_n = if pad { chunk } else { end - start };
+            let mut batch = vec![0f32; batch_n * tile_len];
             for (b, tile) in tiles[start..end].iter().enumerate() {
                 if tile.data.len() != tile_len {
                     return Err(format!(
@@ -715,7 +747,7 @@ impl Engine {
                 }
                 batch[b * tile_len..(b + 1) * tile_len].copy_from_slice(&tile.data);
             }
-            let tensor = OrtTensor::from_array(([GAP_ACCEL_BATCH, 1, TILE_SIZE, TILE_SIZE], batch))
+            let tensor = OrtTensor::from_array(([batch_n, 1, TILE_SIZE, TILE_SIZE], batch))
                 .map_err(|e| format!("gap batch tensor: {e}"))?;
             let outputs = session
                 .run(ort::inputs!["tiles" => tensor])
@@ -792,9 +824,12 @@ impl Engine {
         }
         let t0 = Instant::now();
         let out = run_ant_session(guard.as_mut().unwrap(), feed);
-        let ep = self.ant_dynamic_ep.get().copied().unwrap_or("?");
+        let ep = self.ant_dynamic_ep_label();
         match &out {
-            Ok(_) => tracing::info!(ep, ms = t0.elapsed().as_millis() as u64, "ant forward"),
+            Ok(_) => {
+                tracing::info!(ep, ms = t0.elapsed().as_millis() as u64, "ant forward");
+                return out;
+            }
             Err(e) => tracing::warn!(
                 ep,
                 ms = t0.elapsed().as_millis() as u64,
@@ -803,7 +838,47 @@ impl Engine {
                 "ant forward failed"
             ),
         }
+        // A lost GPU (driver reset / hang) never comes back for this process:
+        // every later DirectML call fails. Move colorize to the CPU for the
+        // rest of the session and retry this request there, instead of
+        // failing until the user restarts the app.
+        if let Err(e) = &out {
+            if self.ant_ep == AntEp::Dml && ep != "cpu" && is_gpu_device_lost(e) {
+                let reason = format!(
+                    "GPU stopped responding during colorize ({}); colorize moved to the CPU until restart",
+                    gpu_error_hint(e)
+                );
+                tracing::warn!(%reason, "recovering: rebuilding AnT on the CPU EP and retrying");
+                Self::note_accel_reason(&self.ant_accel_reason, &reason);
+                let path = self
+                    .ant_model_path
+                    .as_ref()
+                    .ok_or("no AnT model configured (start the sidecar with --ant-model)")?;
+                *guard = None; // release the dead DirectML session first
+                *guard = Some(build_cpu_session("AnT v2 (dynamic)", path)?);
+                self.set_ant_dynamic_ep("cpu");
+                let t1 = Instant::now();
+                let retry = run_ant_session(guard.as_mut().unwrap(), feed);
+                tracing::info!(
+                    ep = "cpu",
+                    ms = t1.elapsed().as_millis() as u64,
+                    ok = retry.is_ok(),
+                    "ant forward (retry after GPU loss)"
+                );
+                return retry;
+            }
+        }
         out
+    }
+
+    fn set_ant_dynamic_ep(&self, label: &'static str) {
+        if let Ok(mut g) = self.ant_dynamic_ep.lock() {
+            *g = label;
+        }
+    }
+
+    fn ant_dynamic_ep_label(&self) -> &'static str {
+        self.ant_dynamic_ep.lock().map(|g| *g).unwrap_or("?")
     }
 
     /// Build the non-CoreML AnT session. Under the Dml plan this prefers the
@@ -827,7 +902,7 @@ impl Engine {
                 };
                 match build_dml_session(what, path) {
                     Ok(session) => {
-                        let _ = self.ant_dynamic_ep.set(if self.ant_tiled_model_path.is_some() {
+                        self.set_ant_dynamic_ep(if self.ant_tiled_model_path.is_some() {
                             "dml (tiled)"
                         } else {
                             "dml"
@@ -849,7 +924,7 @@ impl Engine {
             .as_ref()
             .ok_or("no AnT model configured (start the sidecar with --ant-model)")?;
         let session = build_cpu_session("AnT v2 (dynamic)", path)?;
-        let _ = self.ant_dynamic_ep.set("cpu");
+        self.set_ant_dynamic_ep("cpu");
         Ok(session)
     }
 
@@ -1053,6 +1128,15 @@ mod tests {
     }
 }
 
+/// True when an ORT/DirectML error means the GPU device is gone for this
+/// process (removed, hung, or reset) — recoverable only by not using it.
+pub fn is_gpu_device_lost(err: &str) -> bool {
+    let e = err.to_ascii_uppercase();
+    ["887A0005", "887A0006", "887A0007", "DEVICE_REMOVED", "DEVICE_HUNG", "DEVICE_RESET"]
+        .iter()
+        .any(|k| e.contains(k))
+}
+
 /// Plain-English hint for GPU failures that show up as opaque HRESULTs in
 /// DirectML errors. Field logs arrive as screenshots, so spell it out.
 pub fn gpu_error_hint(err: &str) -> &'static str {
@@ -1075,6 +1159,15 @@ pub fn gpu_error_hint(err: &str) -> &'static str {
 #[cfg(test)]
 mod gpu_hint_tests {
     use super::gpu_error_hint;
+
+    #[test]
+    fn device_lost_detection() {
+        use super::is_gpu_device_lost;
+        assert!(is_gpu_device_lost("... Exception(3) tid(1010) 887A0005 The GPU device instance has been suspended"));
+        assert!(is_gpu_device_lost("Exception(1) 887a0006 The GPU will not respond"));
+        assert!(!is_gpu_device_lost("887A0004 unsupported"));
+        assert!(!is_gpu_device_lost("shape mismatch"));
+    }
 
     #[test]
     fn recognizes_device_removed() {
