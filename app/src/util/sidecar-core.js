@@ -200,7 +200,9 @@ export function describeMissing(missing) {
 // screenshots, so translate the common ones into something actionable.
 const WINDOWS_EXIT_STATUSES = {
   0xC000001D: ['STATUS_ILLEGAL_INSTRUCTION',
-    'the CPU lacks an instruction the AI backend needs — most likely AVX/AVX2 (older or budget Celeron/Pentium processors)'],
+    'this processor is not supported by the on-device AI backend, which needs a CPU with AVX2 '
+    + '(Intel 4th-gen Core / 2013 or newer, AMD Ryzen or 2015 or newer). Budget Celeron/Pentium '
+    + 'Silver and older processors lack it'],
   0xC0000005: ['STATUS_ACCESS_VIOLATION', 'the backend crashed (invalid memory access)'],
   0xC0000135: ['STATUS_DLL_NOT_FOUND',
     'a required DLL is missing (DirectML.dll next to the sidecar, or the Microsoft Visual C++ runtime)'],

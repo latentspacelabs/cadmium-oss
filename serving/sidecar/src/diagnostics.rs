@@ -85,6 +85,26 @@ fn log_gpus() {
 #[cfg(not(target_os = "windows"))]
 fn log_gpus() {}
 
+/// Microsoft's Basic Render Driver (vendor 0x1414) is a software/display-only
+/// adapter: DirectML "works" on it but renders in software.
+pub fn is_real_gpu(vendor_id: u32, software_flag: bool) -> bool {
+    !software_flag && vendor_id != 0x1414
+}
+
+/// Windows: whether any real (hardware, non-Microsoft) GPU adapter exists.
+/// None when it can't be determined (non-Windows, or DXGI failed) — callers
+/// keep their default plan then.
+pub fn windows_has_hardware_gpu() -> Option<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_gpus::has_hardware_gpu()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 /// Pack a DXGI user-mode driver version (four 16-bit fields, high to low)
 /// into the dotted form Windows shows in Device Manager.
 pub fn format_driver_version(v: i64) -> String {
@@ -106,7 +126,7 @@ pub fn vendor_name(id: u32) -> &'static str {
 
 #[cfg(target_os = "windows")]
 mod windows_gpus {
-    use super::{format_driver_version, vendor_name};
+    use super::{format_driver_version, is_real_gpu, vendor_name};
     use windows::core::Interface;
     use windows::Win32::Graphics::Dxgi::{
         CreateDXGIFactory1, IDXGIAdapter1, IDXGIDevice, IDXGIFactory6, DXGI_ADAPTER_FLAG_SOFTWARE,
@@ -141,7 +161,7 @@ mod windows_gpus {
                     .CheckInterfaceSupport(&IDXGIDevice::IID)
                     .map(format_driver_version)
                     .unwrap_or_else(|_| "?".into());
-                let dml_pick = !software && !picked;
+                let dml_pick = is_real_gpu(desc.VendorId, software) && !picked;
                 picked |= dml_pick;
                 tracing::info!(
                     index = i,
@@ -159,10 +179,29 @@ mod windows_gpus {
             }
             tracing::info!(adapters = count, plain_default = %default_name, "gpu: enumeration done");
             if !picked {
-                tracing::warn!("gpu: no hardware adapter found — DirectML cannot run; expect CPU fallback");
+                tracing::warn!(
+                    "gpu: no hardware GPU found (only Microsoft Basic Render Driver / software \
+                     adapters) — the backend will run on the CPU"
+                );
             }
         }
         Ok(())
+    }
+
+    pub fn has_hardware_gpu() -> Option<bool> {
+        // SAFETY: plain COM factory/adapter queries.
+        unsafe {
+            let factory: IDXGIFactory6 = CreateDXGIFactory1().ok()?;
+            for i in 0.. {
+                let Ok(adapter) = factory.EnumAdapters1(i) else { break };
+                let Ok(desc) = adapter.GetDesc1() else { continue };
+                let software = desc.Flags & (DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0;
+                if is_real_gpu(desc.VendorId, software) {
+                    return Some(true);
+                }
+            }
+            Some(false)
+        }
     }
 
     fn utf16_name(raw: &[u16]) -> String {
@@ -180,6 +219,14 @@ mod tests {
         // 31.0.15.5222 — a typical NVIDIA DCH driver.
         let v: i64 = (31 << 48) | (0 << 32) | (15 << 16) | 5222;
         assert_eq!(format_driver_version(v), "31.0.15.5222");
+    }
+
+    #[test]
+    fn basic_render_driver_is_not_a_real_gpu() {
+        assert!(!is_real_gpu(0x1414, false)); // Basic Render Driver (hardware-flagged)
+        assert!(!is_real_gpu(0x10de, true)); // anything software-flagged
+        assert!(is_real_gpu(0x8086, false)); // Intel iGPU counts
+        assert!(is_real_gpu(0x10de, false));
     }
 
     #[test]

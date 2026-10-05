@@ -309,6 +309,15 @@ impl Engine {
         // easy-to-miss degradation — record why so `/health` can surface it.
         let mut ant_reason: Option<String> = None;
         let mut gap_reason: Option<String> = None;
+        // Windows `auto`: DirectML only pays off on a real GPU. With nothing
+        // but Microsoft's Basic Render Driver (VMs, Remote Desktop, broken
+        // drivers, GPU-less runners) DML runs in software and is slower than
+        // the CPU EP — skip it. Explicit `--ep dml` still forces DML.
+        let no_hw_gpu = cfg!(target_os = "windows")
+            && matches!(ep, EpSelect::Auto)
+            && crate::diagnostics::windows_has_hardware_gpu() == Some(false);
+        const NO_HW_GPU_REASON: &str =
+            "no hardware GPU found (only Microsoft Basic Render Driver / software adapters) — using the CPU";
         let ant_ep = match ep {
             EpSelect::Cpu => AntEp::Cpu,
             EpSelect::Auto => {
@@ -327,7 +336,10 @@ impl Engine {
                     // The tiled model is what makes DirectML worthwhile (the
                     // stock model's scatter falls back to CPU); only auto-enable
                     // DML when it is present.
-                    if ant_tiled_model_path.is_some() {
+                    if no_hw_gpu {
+                        ant_reason = Some(NO_HW_GPU_REASON.into());
+                        AntEp::Cpu
+                    } else if ant_tiled_model_path.is_some() {
                         AntEp::Dml
                     } else {
                         ant_reason = Some(
@@ -368,7 +380,12 @@ impl Engine {
             if cfg!(target_os = "macos") && matches!(ep, EpSelect::Auto | EpSelect::CoreMl) {
                 Some(GapEp::CoreMl)
             } else if cfg!(target_os = "windows") && matches!(ep, EpSelect::Auto | EpSelect::Dml) {
-                Some(GapEp::Dml)
+                if no_hw_gpu {
+                    gap_reason = Some(NO_HW_GPU_REASON.into());
+                    None
+                } else {
+                    Some(GapEp::Dml)
+                }
             } else {
                 None
             };
