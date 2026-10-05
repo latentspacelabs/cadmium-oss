@@ -1043,7 +1043,13 @@ mod tests {
         let without = Engine::new(None, None, None, None, None, EpSelect::Auto, None).unwrap();
         let r = without.accel_report();
         assert_eq!(r.segment.active, "cpu");
-        assert!(r.segment.reason.unwrap().contains("gap_closer_fp16.onnx"));
+        // On a GPU-less machine "no hardware GPU" outranks the missing model.
+        let expected = if crate::diagnostics::windows_has_hardware_gpu() == Some(false) {
+            "no hardware GPU"
+        } else {
+            "gap_closer_fp16.onnx"
+        };
+        assert!(r.segment.reason.unwrap().contains(expected));
     }
 }
 
