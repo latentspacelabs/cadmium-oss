@@ -54,6 +54,8 @@ ort = { version = "=2.0.0-rc.12", features = ["coreml", "load-dynamic"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.12", features = ["directml"] }
+# DXGI adapter enumeration for the startup GPU report (src/diagnostics.rs).
+windows = { version = "0.61", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Foundation"] }
 
 [[bin]]
 name = "verify_segment"

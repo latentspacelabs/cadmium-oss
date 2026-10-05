@@ -11,6 +11,7 @@
 //!
 //! Response images go out through the cv2 encoder (grayscale, so no channel
 //! swap), except the compare-skipped colorized visualization.
+use std::time::Instant;
 
 use crate::segment::tiler::Tiler;
 use crate::segment::{binarize, compute_seg_fast_stages, tiled, Gray};
@@ -20,7 +21,9 @@ use super::contract::{SegmentRequest, SegmentResponse};
 use super::engine::Engine;
 
 pub fn run_segment(engine: &Engine, req: &SegmentRequest) -> Result<SegmentResponse, String> {
+    let t_decode = Instant::now();
     let img = codec::decode_png_uri_cv2(&req.line_image_uri, false)?;
+    let decode_ms = t_decode.elapsed().as_millis() as u64;
     if img.channels != 4 {
         // process_image raises ValueError on non-RGBA inputs.
         return Err(format!(
@@ -49,21 +52,50 @@ pub fn run_segment(engine: &Engine, req: &SegmentRequest) -> Result<SegmentRespo
     }
 
     let min_seg_size = req.min_seg_size as usize;
-    let (labels_u8, boundary, num_segments) = if req.gap_closer_strength > 0.0
-        && engine.gap_model_path.is_some()
-    {
-        gap_close_path(engine, &alpha, req.gap_closer_strength, min_seg_size)?
+    let use_gap = req.gap_closer_strength > 0.0 && engine.gap_model_path.is_some();
+    let t_work = Instant::now();
+    let mut timings = GapTimings::default();
+    let (labels_u8, boundary, num_segments) = if use_gap {
+        gap_close_path(engine, &alpha, req.gap_closer_strength, min_seg_size, &mut timings)?
     } else {
         trapped_ball_path(&alpha, min_seg_size)
     };
+    let work_ms = t_work.elapsed().as_millis() as u64;
 
+    let t_encode = Instant::now();
     let colorized = req.return_colorized.then(|| colorized_uri(&labels_u8));
-    Ok(SegmentResponse {
+    let resp = SegmentResponse {
         seg_map_uri: codec::encode_gray_uri_cv2(&labels_u8),
         colorized_seg_map_uri: colorized,
         boundary_binary_uri: Some(codec::encode_gray_uri_cv2(&boundary)),
         num_segments,
-    })
+    };
+    tracing::info!(
+        w,
+        h,
+        path = if use_gap { "gap-closer" } else { "trapped-ball" },
+        strength = req.gap_closer_strength,
+        tiles = timings.tiles,
+        decode_ms,
+        infer_ms = timings.infer_ms,
+        compose_ms = timings.compose_ms,
+        glue_ms = timings.glue_ms,
+        work_ms,
+        encode_ms = t_encode.elapsed().as_millis() as u64,
+        segments = num_segments,
+        "segment stages"
+    );
+    Ok(resp)
+}
+
+/// Per-stage wall times for the gap-closer path, filled by gap_close_path
+/// and logged once per request (field "why is /segment slow" reports).
+#[derive(Default)]
+struct GapTimings {
+    tiles: usize,
+    infer_ms: u64,
+    compose_ms: u64,
+    glue_ms: u64,
 }
 
 /// `process_image` with model=None: binarize + compute_seg_fast, labels cast
@@ -89,6 +121,7 @@ fn gap_close_path(
     alpha: &Gray,
     strength: f32,
     min_seg_size: usize,
+    timings: &mut GapTimings,
 ) -> Result<(Gray, Gray, u32), String> {
     let mi = tiled::build_model_input(alpha);
     let overlap = (tiled::TILE_SIZE as f64 * tiled::OVERLAP_FACTOR) as usize;
@@ -103,16 +136,23 @@ fn gap_close_path(
     let tiles: Vec<_> = (0..tiler.n_tiles())
         .map(|tile_id| tiler.get_tile_f32(&mi.padded_edge, tile_id))
         .collect();
+    timings.tiles = tiles.len();
+    let t_infer = Instant::now();
     let udfs = engine
         .run_gap_udfs(&tiles)?
         .ok_or("gap model disappeared mid-request")?;
+    timings.infer_ms = t_infer.elapsed().as_millis() as u64;
+    let t_compose = Instant::now();
     let boundaries: Vec<_> = tiles
         .iter()
         .zip(udfs.iter())
         .map(|(tile, udf)| tiled::tile_boundary_from_udf(udf, tile, strength))
         .collect();
 
+    timings.compose_ms = t_compose.elapsed().as_millis() as u64;
+    let t_glue = Instant::now();
     let stages = tiled::gap_close_stages(alpha, &boundaries, [2, 1, 0], 10, min_seg_size);
+    timings.glue_ms = t_glue.elapsed().as_millis() as u64;
 
     // predict: `num_regions = len(unique) - 1 if 0 in unique else len(unique)`
     // over the PRE-relabel merged map (stage 10).

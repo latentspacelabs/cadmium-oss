@@ -168,6 +168,20 @@ jobs:
         working-directory: serving/sidecar
         shell: powershell
         run: ./scripts/fetch-directml.ps1
+      # Start the sidecar under Intel SDE emulating older CPUs (no-AVX
+      # Celeron/Nehalem, AVX-only Sandy Bridge, AVX2 Haswell). Field crashes
+      # were 0xC000001D STATUS_ILLEGAL_INSTRUCTION at load — this reproduces
+      # that class without the hardware. Results go to the job summary; only
+      # the AVX2 baseline is required to pass (see the script header).
+      - name: Setup Intel SDE
+        uses: petarpetrovt/setup-sde@v6.0
+      - name: CPU compatibility (SDE)
+        working-directory: serving/sidecar
+        shell: powershell
+        run: |
+          # Mirror the shipped layout: DirectML.dll next to the exe.
+          Copy-Item vendor/DirectML.dll target/x86_64-pc-windows-msvc/release/ -Force
+          ./scripts/cpu-compat-sde.ps1 -Exe "$PWD/target/x86_64-pc-windows-msvc/release/cadmium-sidecar.exe"
       - uses: actions/setup-node@v4
         with:
           node-version: 20

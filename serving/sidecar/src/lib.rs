@@ -2,6 +2,7 @@
 //! (verified byte-exact against production goldens) plus the HTTP serving
 //! layer (`serve`) that assembles them behind the production contract.
 
+pub mod diagnostics;
 pub mod goldens;
 pub mod ort_dylib;
 pub mod imageprep;

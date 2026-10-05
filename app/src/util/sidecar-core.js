@@ -194,3 +194,58 @@ export function describeMissing(missing) {
   const files = missing.map((m) => m.file).join(', ');
   return `Missing: ${files}`;
 }
+
+// Windows reports a crashed process's NTSTATUS as its exit code (Node
+// surfaces it unsigned, e.g. 3221225501). Field reports arrive as Debug Log
+// screenshots, so translate the common ones into something actionable.
+const WINDOWS_EXIT_STATUSES = {
+  0xC000001D: ['STATUS_ILLEGAL_INSTRUCTION',
+    'the CPU lacks an instruction the AI backend needs — most likely AVX/AVX2 (older or budget Celeron/Pentium processors)'],
+  0xC0000005: ['STATUS_ACCESS_VIOLATION', 'the backend crashed (invalid memory access)'],
+  0xC0000135: ['STATUS_DLL_NOT_FOUND',
+    'a required DLL is missing (DirectML.dll next to the sidecar, or the Microsoft Visual C++ runtime)'],
+  0xC0000139: ['STATUS_ENTRYPOINT_NOT_FOUND',
+    'a DLL is the wrong version (often an old DirectML.dll or VC++ runtime being picked up)'],
+  0xC0000142: ['STATUS_DLL_INIT_FAILED', 'a DLL failed to initialize (GPU driver or VC++ runtime problem)'],
+  0xC000007B: ['STATUS_INVALID_IMAGE_FORMAT', 'a 32-bit/64-bit DLL mismatch'],
+  0xC0000409: ['STATUS_STACK_BUFFER_OVERRUN', 'the backend aborted (fail-fast / panic abort)'],
+  0xC00000FD: ['STATUS_STACK_OVERFLOW', 'the backend overflowed its stack'],
+  0xC0000017: ['STATUS_NO_MEMORY', 'the backend ran out of memory'],
+  0xC000009A: ['STATUS_INSUFFICIENT_RESOURCES', 'the system ran out of resources (memory/handles)'],
+};
+
+/**
+ * Human description of a child exit, decoding Windows NTSTATUS crash codes.
+ * Pure — `platform` is injected for testability.
+ */
+export function describeExit({ code, signal }, platform) {
+  const base = `code ${code}, signal ${signal}`;
+  if (platform !== 'win32' || typeof code !== 'number') return base;
+  const unsigned = code >>> 0;
+  const hex = `0x${unsigned.toString(16).toUpperCase().padStart(8, '0')}`;
+  const known = WINDOWS_EXIT_STATUSES[unsigned];
+  if (known) return `${base} = ${hex} ${known[0]}: ${known[1]}`;
+  // Any other 0xC... is still an NTSTATUS crash — say so, with the hex.
+  if (unsigned >= 0xC0000000) return `${base} = ${hex} (Windows crash status)`;
+  return base;
+}
+
+/** True when an exit means "this CPU can't run the backend at all". */
+export function isUnsupportedCpuExit({ code }, platform) {
+  return platform === 'win32' && typeof code === 'number' && (code >>> 0) === 0xC000001D;
+}
+
+/**
+ * One-line host summary for the debug log, logged at every sidecar spawn so
+ * field reports carry the hardware even when the sidecar dies before it can
+ * log anything itself. Pure — takes an os-like snapshot.
+ */
+export function formatHostInfo({ platform, release, arch, cpus, totalmem, freemem }) {
+  const cpu = cpus && cpus.length ? cpus[0] : null;
+  const gib = (n) => (typeof n === 'number' ? `${(n / 2 ** 30).toFixed(1)} GiB` : '?');
+  return [
+    `host: ${platform} ${release} ${arch}`,
+    `cpu: ${cpu ? cpu.model.trim() : '?'} (${cpus ? cpus.length : '?'} logical${cpu && cpu.speed ? `, ${cpu.speed} MHz` : ''})`,
+    `ram: ${gib(totalmem)} total, ${gib(freemem)} free`,
+  ].join(' | ');
+}

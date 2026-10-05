@@ -474,6 +474,28 @@ isReady = true;
 let debugLog = null;
 let pendingLogEntries = [];
 let logFlushTimer = null;
+// App-level hardware snapshot for the Debug Log, independent of the sidecar
+// (which can die before logging anything — e.g. an illegal-instruction crash
+// at load). GPU list comes from Chromium: vendor/device ids + driver
+// versions per adapter, `active` marking the one Chromium renders on.
+function logStartupDiagnostics() {
+  const log = (line) => getDebugLog().append('app', line);
+  try {
+    log(`Cadmium ${app.getVersion()} (electron ${process.versions.electron}, ${process.platform} ${process.arch})`);
+  } catch (e) { /* diagnostics only */ }
+  app.getGPUInfo('basic').then((info) => {
+    const vendors = { 0x10de: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel', 0x1414: 'Microsoft' };
+    const devices = (info && info.gpuDevice) || [];
+    if (!devices.length) log('gpu: none reported by Chromium');
+    devices.forEach((d, i) => {
+      const vendor = vendors[d.vendorId] || `vendor 0x${(d.vendorId || 0).toString(16)}`;
+      const name = d.deviceString ? ` "${d.deviceString}"` : '';
+      log(`gpu[${i}]: ${vendor}${name} device 0x${(d.deviceId || 0).toString(16)}`
+        + ` driver ${d.driverVersion || '?'}${d.active ? ' (active)' : ''}`);
+    });
+  }).catch((e) => log(`gpu: getGPUInfo failed: ${e && e.message}`));
+}
+
 function getDebugLog() {
   if (!debugLog) {
     debugLog = createDebugLog();
@@ -846,6 +868,7 @@ app.on('ready', async () => {
     }
   }
   menuSetLocale();
+  logStartupDiagnostics();
   // Before the window exists: a first-run reset must land before the
   // renderer asks for its prefs.
   reconcileInstallState();

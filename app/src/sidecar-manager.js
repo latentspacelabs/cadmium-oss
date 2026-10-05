@@ -40,6 +40,9 @@ import {
   restartDelayMs,
   describeMissing,
   missingAccelFiles,
+  describeExit,
+  isUnsupportedCpuExit,
+  formatHostInfo,
 } from './util/sidecar-core';
 import { embeddedBaseUrl } from './util/server-config';
 import {
@@ -116,6 +119,18 @@ function defaultDelay(ms) {
 }
 
 // Append stream to the sidecar log, with a simple size-capped rotation.
+function defaultHostInfo() {
+  const os = require('os');
+  return formatHostInfo({
+    platform: os.platform(),
+    release: os.release(),
+    arch: os.arch(),
+    cpus: os.cpus(),
+    totalmem: os.totalmem(),
+    freemem: os.freemem(),
+  });
+}
+
 function defaultCreateLogSink(logDir, logPath) {
   const fs = require('fs');
   fs.mkdirSync(logDir, { recursive: true });
@@ -178,6 +193,9 @@ export class SidecarManager {
       buildingPollIntervalMs = 2500,
       buildingPollMaxMs = 10 * 60 * 1000,
       logFn = (...args) => console.log('[sidecar]', ...args),
+      // Host snapshot logged at every spawn (see formatHostInfo). Injected so
+      // tests stay deterministic; null disables.
+      hostInfoFn = defaultHostInfo,
     } = opts;
 
     this.paths = resolveSidecarPaths({
@@ -210,6 +228,7 @@ export class SidecarManager {
     this._buildingPollGen = null;
     this._refreshHealthPromise = null;
     this.logFn = logFn;
+    this.hostInfoFn = hostInfoFn;
 
     this.state = SIDECAR_STATES.STOPPED;
     this.port = null;
@@ -524,6 +543,10 @@ export class SidecarManager {
     this._ensureExitHook();
     this._attachChild(child, gen);
     this.logFn(`spawned pid ${child.pid} on port ${this.port}`);
+    if (this.hostInfoFn) {
+      try { this.logFn(this.hostInfoFn()); } catch (e) { /* diagnostics only */ }
+    }
+    this.logFn(`sidecar: ${this.paths.binPath}`);
 
     // Readiness: poll /health until 200 or timeout. The sidecar answers
     // /health as soon as it listens (ONNX sessions are lazy), so this is a
@@ -594,10 +617,22 @@ export class SidecarManager {
 
     const desc = err
       ? `failed to launch: ${err.message}`
-      : `exited (code ${exit.code}, signal ${exit.signal})`;
+      : `exited (${describeExit(exit, this.platform)})`;
     const tail = this._stderrTailString();
     this.lastError = `Sidecar ${desc}${tail ? ` — ${tail}` : ''}`;
     this.logFn(this.lastError);
+    if (exit) {
+      this.logFn(`sidecar ran ${this.nowFn() - this._spawnedAt}ms before exiting (state was ${this.state})`);
+    }
+
+    if (exit && isUnsupportedCpuExit(exit, this.platform)) {
+      // Deterministic: this CPU can never run the backend. Restarting would
+      // just crash-loop — fail immediately with the actionable message.
+      this.logFn('unsupported CPU: not restarting (would crash again on every launch)');
+      this._failureKind = 'runtime';
+      this._setState(SIDECAR_STATES.FAILED);
+      return;
+    }
 
     if (this.state === SIDECAR_STATES.STARTING) {
       // Died before ever answering /health: almost certainly persistent (bad

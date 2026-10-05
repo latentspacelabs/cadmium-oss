@@ -185,6 +185,9 @@ pub struct Engine {
     /// `ant_ep` is Dml) the tiled model on DirectML — with a lazy fallback to
     /// the dynamic model on the CPU EP if DirectML can't initialize.
     ant: Mutex<Option<Session>>,
+    /// Which EP the dynamic AnT session actually landed on (set when it is
+    /// built — DirectML can silently fall back to CPU), for per-forward logs.
+    ant_dynamic_ep: std::sync::OnceLock<&'static str>,
     /// Bucket-pinned AnT model on the CoreML EP.
     ant_bucket: Mutex<Option<BucketState>>,
     /// GATE_* — colorize serves from the dynamic CPU session while the
@@ -266,7 +269,14 @@ fn build_dml_session(what: &str, path: &Path) -> Result<Session, String> {
     let session = (|| {
         Session::builder()?
             .with_execution_providers([
-                ort::ep::DirectML::default().build().error_on_failure(),
+                // HighPerformance: DXGI's "high performance" GPU preference
+                // (the discrete card on hybrid laptops). The default picks
+                // adapter 0 — usually the integrated GPU driving the display,
+                // which made field runs 10x+ slow and prone to GPU timeouts.
+                ort::ep::DirectML::default()
+                    .with_performance_preference(ort::ep::directml::PerformancePreference::HighPerformance)
+                    .build()
+                    .error_on_failure(),
                 CPU::default().build(),
             ])?
             .commit_from_file(path)
@@ -275,7 +285,7 @@ fn build_dml_session(what: &str, path: &Path) -> Result<Session, String> {
     tracing::info!(
         model = %path.display(),
         load_ms = t0.elapsed().as_millis() as u64,
-        "{what} ONNX session created (DirectML EP + CPU fallback)"
+        "{what} ONNX session created (DirectML EP, high-performance GPU preference, + CPU fallback)"
     );
     Ok(session)
 }
@@ -408,6 +418,7 @@ impl Engine {
             gap_accel: Mutex::new(None),
             gap_accel_failed: AtomicBool::new(false),
             ant: Mutex::new(None),
+            ant_dynamic_ep: std::sync::OnceLock::new(),
             ant_bucket: Mutex::new(None),
             ant_bucket_gate: AtomicU8::new(GATE_IDLE),
             ant_accel_reason: Mutex::new(ant_reason),
@@ -566,16 +577,36 @@ impl Engine {
     /// batches; a build/init error falls back to the CPU EP.
     pub fn run_gap_udfs(&self, tiles: &[PlaneF32]) -> Result<Option<Vec<Vec<f32>>>, String> {
         if self.gap_ep.is_accel() && !self.gap_accel_failed.load(Ordering::SeqCst) {
+            let t0 = Instant::now();
             match self.run_gap_accel(tiles) {
-                Ok(udfs) => return Ok(Some(udfs)),
+                Ok(udfs) => {
+                    tracing::info!(
+                        ep = Self::gap_ep_label(self.gap_ep),
+                        tiles = tiles.len(),
+                        ms = t0.elapsed().as_millis() as u64,
+                        "gap inference"
+                    );
+                    return Ok(Some(udfs));
+                }
                 Err(e) => tracing::warn!(
                     error = %e,
+                    hint = gpu_error_hint(&e),
                     ep = Self::gap_ep_label(self.gap_ep),
+                    after_ms = t0.elapsed().as_millis() as u64,
                     "accelerated gap-closer unavailable; falling back to the CPU EP"
                 ),
             }
         }
-        self.run_gap_cpu(tiles)
+        let t0 = Instant::now();
+        let out = self.run_gap_cpu(tiles);
+        tracing::info!(
+            ep = "cpu",
+            tiles = tiles.len(),
+            ms = t0.elapsed().as_millis() as u64,
+            ok = out.is_ok(),
+            "gap inference"
+        );
+        out
     }
 
     /// Build the batched gap accelerator session into `gap_accel` if absent.
@@ -742,7 +773,20 @@ impl Engine {
         if guard.is_none() {
             *guard = Some(self.build_ant_session()?);
         }
-        run_ant_session(guard.as_mut().unwrap(), feed)
+        let t0 = Instant::now();
+        let out = run_ant_session(guard.as_mut().unwrap(), feed);
+        let ep = self.ant_dynamic_ep.get().copied().unwrap_or("?");
+        match &out {
+            Ok(_) => tracing::info!(ep, ms = t0.elapsed().as_millis() as u64, "ant forward"),
+            Err(e) => tracing::warn!(
+                ep,
+                ms = t0.elapsed().as_millis() as u64,
+                error = %e,
+                hint = gpu_error_hint(e),
+                "ant forward failed"
+            ),
+        }
+        out
     }
 
     /// Build the non-CoreML AnT session. Under the Dml plan this prefers the
@@ -765,7 +809,14 @@ impl Engine {
                     "AnT v2 (dynamic)"
                 };
                 match build_dml_session(what, path) {
-                    Ok(session) => return Ok(session),
+                    Ok(session) => {
+                        let _ = self.ant_dynamic_ep.set(if self.ant_tiled_model_path.is_some() {
+                            "dml (tiled)"
+                        } else {
+                            "dml"
+                        });
+                        return Ok(session);
+                    }
                     Err(e) => {
                         Self::note_accel_reason(&self.ant_accel_reason, &e);
                         tracing::warn!(
@@ -780,7 +831,9 @@ impl Engine {
             .ant_model_path
             .as_ref()
             .ok_or("no AnT model configured (start the sidecar with --ant-model)")?;
-        build_cpu_session("AnT v2 (dynamic)", path)
+        let session = build_cpu_session("AnT v2 (dynamic)", path)?;
+        let _ = self.ant_dynamic_ep.set("cpu");
+        Ok(session)
     }
 
     /// Build the bucket-pinned CoreML session (the expensive step behind
@@ -822,6 +875,7 @@ impl Engine {
         let state = guard.as_mut().unwrap();
         let t0 = Instant::now();
         let out = run_ant_session(&mut state.session, feed)?;
+        tracing::info!(ep = "coreml (bucket)", ms = t0.elapsed().as_millis() as u64, "ant forward");
         if !state.warmed {
             state.warmed = true;
             tracing::info!(
@@ -966,5 +1020,36 @@ mod tests {
         let r = without.accel_report();
         assert_eq!(r.segment.active, "cpu");
         assert!(r.segment.reason.unwrap().contains("gap_closer_fp16.onnx"));
+    }
+}
+
+/// Plain-English hint for GPU failures that show up as opaque HRESULTs in
+/// DirectML errors. Field logs arrive as screenshots, so spell it out.
+pub fn gpu_error_hint(err: &str) -> &'static str {
+    let e = err.to_ascii_uppercase();
+    if e.contains("887A0005") || e.contains("DEVICE_REMOVED") {
+        "GPU device removed — the driver reset the GPU (often a >2s GPU timeout on a weak/integrated GPU, or a driver crash); restart the backend to recover"
+    } else if e.contains("887A0006") || e.contains("DEVICE_HUNG") {
+        "GPU hung — the driver reset it; restart the backend to recover"
+    } else if e.contains("887A0007") || e.contains("DEVICE_RESET") {
+        "GPU reset by the system; restart the backend to recover"
+    } else if e.contains("887A0004") || e.contains("UNSUPPORTED") {
+        "GPU/driver does not support a required DirectX 12 feature (old DirectML.dll or old driver?)"
+    } else if e.contains("8007000E") || e.to_ascii_lowercase().contains("out of memory") {
+        "out of GPU/system memory"
+    } else {
+        ""
+    }
+}
+
+#[cfg(test)]
+mod gpu_hint_tests {
+    use super::gpu_error_hint;
+
+    #[test]
+    fn recognizes_device_removed() {
+        assert!(gpu_error_hint("Non-zero status code ... 887a0005").starts_with("GPU device removed"));
+        assert!(gpu_error_hint("DXGI_ERROR_DEVICE_HUNG").starts_with("GPU hung"));
+        assert_eq!(gpu_error_hint("some other failure"), "");
     }
 }

@@ -831,3 +831,54 @@ describe('SidecarManager — missingAccel in the status', () => {
     expect(status.missingAccel).toEqual([]);
   });
 });
+
+describe('SidecarManager — field diagnostics', () => {
+  it('logs a host snapshot and the binary path at every spawn', async () => {
+    const lines = [];
+    const h = makeHarness({
+      managerOptions: { logFn: (l) => lines.push(l), hostInfoFn: () => 'host: TEST' },
+    });
+    await h.manager.ensureStarted();
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^spawned pid/),
+      'host: TEST',
+      expect.stringMatching(/^sidecar: /),
+    ]));
+  });
+
+  it('a throwing hostInfoFn never breaks spawning', async () => {
+    const h = makeHarness({
+      managerOptions: { hostInfoFn: () => { throw new Error('boom'); } },
+    });
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY);
+  });
+
+  it('decodes a Windows illegal-instruction crash and fails without restarting', async () => {
+    const lines = [];
+    const h = makeHarness({
+      managerOptions: { platform: 'win32', logFn: (l) => lines.push(l), hostInfoFn: null },
+    });
+    const status = await h.manager.ensureStarted();
+    expect(status.state).toBe(SIDECAR_STATES.READY);
+    h.spawned[0].child.emit('exit', 3221225501, null);
+    expect(h.manager.state).toBe(SIDECAR_STATES.FAILED);
+    expect(h.spawned.length).toBe(1); // no crash loop
+    expect(h.manager.getStatus().lastError).toMatch(/0xC000001D STATUS_ILLEGAL_INSTRUCTION.*AVX/);
+    expect(lines).toEqual(expect.arrayContaining([expect.stringMatching(/^unsupported CPU/)]));
+  });
+
+  it('still auto-restarts other Windows crashes, with the decoded status logged', async () => {
+    const lines = [];
+    const h = makeHarness({
+      managerOptions: { platform: 'win32', logFn: (l) => lines.push(l), hostInfoFn: null },
+    });
+    await h.manager.ensureStarted();
+    h.spawned[0].child.emit('exit', 3221225477, null); // access violation
+    expect(h.manager.state).toBe(SIDECAR_STATES.STARTING);
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/0xC0000005 STATUS_ACCESS_VIOLATION/),
+      expect.stringMatching(/^sidecar ran \d+ms before exiting/),
+    ]));
+  });
+});

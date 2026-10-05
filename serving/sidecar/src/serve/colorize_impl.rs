@@ -234,18 +234,21 @@ pub fn run_colorize(engine: &Engine, req: &ColorizeRequest) -> Result<ColorizeRe
         (None, None)
     };
 
-    if req.verbose {
-        tracing::info!(
-            prep_ms = (t_vec - t_prep).as_millis() as u64,
-            vtrace_ms = (t_tok - t_vec).as_millis() as u64,
-            tokenize_ms = (t_fwd - t_tok).as_millis() as u64,
-            forward_ms = (forward_secs * 1e3) as u64,
-            total_ms = t0.elapsed().as_millis() as u64,
-            n_ref,
-            n_tgt,
-            "colorize done"
-        );
-    }
+    // Always on (not just `verbose`): field Debug Logs are how slow-machine
+    // reports get diagnosed, and one line per request is cheap.
+    tracing::info!(
+        w = tgt_seg.w,
+        h = tgt_seg.h,
+        prep_ms = (t_vec - t_prep).as_millis() as u64,
+        vtrace_ms = (t_tok - t_vec).as_millis() as u64,
+        tokenize_ms = (t_fwd - t_tok).as_millis() as u64,
+        forward_ms = (forward_secs * 1e3) as u64,
+        total_ms = t0.elapsed().as_millis() as u64,
+        n_ref,
+        n_tgt,
+        n_packed,
+        "colorize stages"
+    );
 
     Ok(ColorizeResponse {
         target_colors_rgba: out

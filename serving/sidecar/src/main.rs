@@ -96,6 +96,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
+    // Hardware report first: if anything below crashes or degrades, the
+    // field Debug Log still shows what machine it happened on.
+    cadmium_sidecar::diagnostics::log_startup_report();
+
     // macOS: resolve the ONNX Runtime dylib (load-dynamic) before anything
     // can touch the ort API — a session build would otherwise panic inside
     // ort's lazy dlopen with an unreadable error.
