@@ -1030,8 +1030,15 @@ mod tests {
         )
         .unwrap();
         let r = with.accel_report();
-        assert_eq!((r.segment.planned, r.segment.active), ("dml", "dml"));
-        assert!(r.segment.reason.is_none());
+        if crate::diagnostics::windows_has_hardware_gpu() == Some(false) {
+            // GPU-less machine (e.g. the CI runner: only Microsoft's Basic
+            // Render Driver) — auto must stay on the CPU and say why.
+            assert_eq!(r.segment.active, "cpu");
+            assert!(r.segment.reason.unwrap().contains("no hardware GPU"));
+        } else {
+            assert_eq!((r.segment.planned, r.segment.active), ("dml", "dml"));
+            assert!(r.segment.reason.is_none());
+        }
 
         let without = Engine::new(None, None, None, None, None, EpSelect::Auto, None).unwrap();
         let r = without.accel_report();
