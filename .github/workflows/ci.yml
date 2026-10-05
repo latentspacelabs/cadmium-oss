@@ -168,6 +168,12 @@ jobs:
         working-directory: serving/sidecar
         shell: powershell
         run: ./scripts/fetch-directml.ps1
+      # Microsoft's official ONNX Runtime DirectML build, loaded at runtime
+      # (pyke's static binary assumed AVX2/BMI2 — see the script header).
+      - name: Fetch ONNX Runtime DLL (load-dynamic)
+        working-directory: serving/sidecar
+        shell: powershell
+        run: ./scripts/fetch-ort-dll.ps1
       # Start the sidecar under Intel SDE emulating older CPUs (no-AVX
       # Celeron/Nehalem, AVX-only Sandy Bridge, AVX2 Haswell). Field crashes
       # were 0xC000001D STATUS_ILLEGAL_INSTRUCTION at load — this reproduces
@@ -179,8 +185,8 @@ jobs:
         working-directory: serving/sidecar
         shell: powershell
         run: |
-          # Mirror the shipped layout: DirectML.dll next to the exe.
-          Copy-Item vendor/DirectML.dll target/x86_64-pc-windows-msvc/release/ -Force
+          # Mirror the shipped layout: runtime DLLs next to the exe.
+          Copy-Item vendor/DirectML.dll, vendor/onnxruntime.dll, vendor/onnxruntime_providers_shared.dll target/x86_64-pc-windows-msvc/release/ -Force
           ./scripts/cpu-compat-sde.ps1 -Exe "$PWD/target/x86_64-pc-windows-msvc/release/cadmium-sidecar.exe"
       - uses: actions/setup-node@v4
         with:

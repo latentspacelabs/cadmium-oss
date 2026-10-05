@@ -154,6 +154,16 @@ module.exports = {
               from: '../serving/sidecar/vendor/DirectML.dll',
               to: 'sidecar/DirectML.dll',
             },
+            {
+              // Microsoft's official ONNX Runtime (DirectML build) the sidecar
+              // loads at runtime (ort load-dynamic, src/ort_dylib.rs). Replaces
+              // pyke's statically linked binary, which assumed AVX2/BMI2 and
+              // crashed at load on pre-Haswell CPUs (0xC000001D). Fetched by
+              // serving/sidecar/scripts/fetch-ort-dll.ps1.
+              from: '../serving/sidecar/vendor',
+              to: 'sidecar',
+              filter: ['onnxruntime.dll', 'onnxruntime_providers_shared.dll'],
+            },
           ],
           // Unsigned distribution ($0 route — no Authenticode cert). The
           // installer ships unsigned: Windows shows a SmartScreen "unknown

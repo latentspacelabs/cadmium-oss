@@ -20,8 +20,13 @@ copied into the app bundle by electron-builder:
   sidecar finds any `libonnxruntime*.dylib` next to its own binary (or
   honors `ORT_DYLIB_PATH`). For dev runs of the sidecar/verify bins, copy it
   to `serving/sidecar/target/release/` too.
-- win: `resources/sidecar/cadmium-sidecar.exe` (x64 MSVC; statically links
-  the pyke ORT 1.24 binary with the DirectML EP) **plus
+- win: `resources/sidecar/cadmium-sidecar.exe` (x64 MSVC, built with
+  `ort`'s `load-dynamic` like mac) plus `sidecar/onnxruntime.dll` +
+  `onnxruntime_providers_shared.dll` — Microsoft's official ORT 1.24.x
+  DirectML build, fetched by `serving/sidecar/scripts/fetch-ort-dll.ps1`.
+  (Until 2026-10 the exe statically linked pyke's ORT binary, which assumes
+  AVX2/BMI2 and crashed at load on every pre-Haswell CPU with 0xC000001D;
+  CI's Intel-SDE step in package-win guards this.) **Plus
   `sidecar/DirectML.dll`** — the DML EP dlopens DirectML.dll at runtime, and
   Windows' system copy (1.4.0 on Server 2022) is too old to create our
   fp16/tiled sessions (fails 887A0004 → silent CPU fallback), so a modern
