@@ -17,7 +17,7 @@ pub mod segment_impl;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -28,6 +28,13 @@ use contract::{
 };
 use engine::Engine;
 
+/// Largest accepted request body. axum's default (2 MB) rejected /colorize
+/// for big frames with a 413 before the handler ran: the request carries four
+/// full-resolution PNG data URIs (ref + target line art and seg maps), so a
+/// 3072x4092 drawing is several MB while /segment (one image) still fits. The
+/// Python server had no cap; the sidecar only listens on localhost.
+pub const MAX_BODY_BYTES: usize = 1024 * 1024 * 1024;
+
 /// Build the application router over a (lazily-loading) engine.
 pub fn router(engine: Arc<Engine>) -> Router {
     Router::new()
@@ -37,6 +44,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/colorize", post(colorize))
         // Back-compat alias kept from the Python server (/predict == /colorize).
         .route("/predict", post(colorize))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(engine)
 }
 
@@ -92,4 +100,28 @@ async fn preprocess(
 
 async fn colorize(State(engine): State<Arc<Engine>>, Json(req): Json<ColorizeRequest>) -> Response {
     run_blocking("/colorize", move || colorize_impl::run_colorize(&engine, &req)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{header, Method, Request};
+    use tower::ServiceExt;
+
+    /// A big frame's /colorize body is several MB; it must reach the JSON
+    /// extractor (422 for this junk body) instead of axum's 2 MB 413.
+    #[tokio::test]
+    async fn accepts_multi_megabyte_bodies() {
+        let engine = Engine::new(None, None, None, None, None, engine::EpSelect::Cpu, None).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(64 * 1024 * 1024));
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/colorize")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let status = router(Arc::new(engine)).oneshot(request).await.unwrap().status();
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
 }
