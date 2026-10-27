@@ -623,10 +623,12 @@ export function createColorizeDeps(store) {
   const { renderColorizedFrame } = require('@/util/colorize-render');
   const { getImageDimensions, loadImage } = require('@/util/image-util');
   const { createCanvas } = require('@/util/canvas-util');
-  const { addTempFile, requestTempFiles } = require('@/platform');
+  const { addTempFile, requestTempFiles, ensureSidecar } = require('@/platform');
 
   const { waitForColorizer } = require('@/services/colorizer-ready');
-  const { getLastSidecarStatus, onSidecarStatus } = require('@/util/sidecar-status');
+  const {
+    getLastSidecarStatus, onSidecarStatus, updateSidecarStatus,
+  } = require('@/util/sidecar-status');
   const { getServerBackend } = require('@/util/server-config');
 
   return {
@@ -637,6 +639,11 @@ export function createColorizeDeps(store) {
       getStatus: getLastSidecarStatus,
       subscribe: onSidecarStatus,
       getBackend: getServerBackend,
+      ensure: async () => {
+        const status = await ensureSidecar();
+        updateSidecarStatus(status);
+        return status;
+      },
     }, ctx),
     io: {
       pathJoin: (...parts) => path.join(...parts),

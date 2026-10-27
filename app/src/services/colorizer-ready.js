@@ -16,6 +16,11 @@
  * a wedged compile would otherwise leave the last status at 'building' forever.
  * Analyze runs never wait (they don't use the colorizer). Hosted backends
  * never wait (the run is served remotely at full speed).
+ *
+ * The sidecar is spawned on demand, so on a first launch the run that starts
+ * it would see 'starting' and sail through: `ensure` (sidecar:ensure) first
+ * brings it to 'ready' — whose first /health already reports 'building' —
+ * and the decision is made on that status.
  */
 
 import { healthCapabilityBuilding } from '@/util/optimize-progress-core';
@@ -39,14 +44,27 @@ export function colorizeShouldWait(status, backend) {
  * @param {() => Object} src.getStatus - latest sidecar status snapshot.
  * @param {(fn: Function) => Function} src.subscribe - status listener; returns unsubscribe.
  * @param {() => Object} src.getBackend - the active server backend.
+ * @param {() => Promise<Object>} [src.ensure] - start the embedded sidecar if
+ *   needed; resolves with its status (rejects/null: don't wait).
  * @param {number} [src.maxWaitMs] - give up waiting after this long (default MAX_WAIT_MS).
  * @param {Object} ctx - JobRunner context ({ signal, throwIfAborted }).
  * @returns {Promise<boolean>} true if it actually waited.
  */
-export function waitForColorizer({
-  getStatus, subscribe, getBackend, maxWaitMs = MAX_WAIT_MS,
+export async function waitForColorizer({
+  getStatus, subscribe, getBackend, ensure, maxWaitMs = MAX_WAIT_MS,
 }, ctx) {
-  if (!colorizeShouldWait(getStatus(), getBackend())) return Promise.resolve(false);
+  const backend = getBackend();
+  if (backend && backend.kind === BACKEND_HOSTED) return false;
+  let status = getStatus();
+  if (ensure && !(status && status.state === 'ready')) {
+    try {
+      status = (await ensure()) || status;
+    } catch (e) {
+      return false; // the run's own requests surface the real error
+    }
+    ctx.throwIfAborted();
+  }
+  if (!colorizeShouldWait(status, getBackend())) return false;
   return new Promise((resolve, reject) => {
     let unsubscribe = () => {};
     let onAbort = () => {};
@@ -65,8 +83,8 @@ export function waitForColorizer({
         reject(e);
       }
     });
-    unsubscribe = subscribe((status) => {
-      if (!colorizeShouldWait(status, getBackend())) finish(() => resolve(true));
+    unsubscribe = subscribe((next) => {
+      if (!colorizeShouldWait(next, getBackend())) finish(() => resolve(true));
     });
     if (ctx.signal) ctx.signal.addEventListener('abort', onAbort);
     timer = setTimeout(() => finish(() => resolve(true)), maxWaitMs);

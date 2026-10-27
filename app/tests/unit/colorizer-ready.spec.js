@@ -113,4 +113,33 @@ describe('waitForColorizer', () => {
       jest.useRealTimers();
     }
   });
+
+  it('first launch: a sidecar still starting is brought up first, then waited on', async () => {
+    const src = makeSource(status('building', 'starting'));
+    src.ensure = jest.fn(async () => {
+      src.push(status('building'));
+      return status('building');
+    });
+    let done = false;
+    const p = waitForColorizer(src, makeCtx()).then((v) => { done = true; return v; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(src.ensure).toHaveBeenCalledTimes(1);
+    expect(done).toBe(false);
+    src.push(status('coreml'));
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('a failed ensure never blocks the run', async () => {
+    const src = makeSource(null);
+    src.ensure = jest.fn(async () => { throw new Error('spawn failed'); });
+    await expect(waitForColorizer(src, makeCtx())).resolves.toBe(false);
+  });
+
+  it('hosted backends never start or wait for the sidecar', async () => {
+    const src = makeSource(null, HOSTED);
+    src.ensure = jest.fn();
+    await expect(waitForColorizer(src, makeCtx())).resolves.toBe(false);
+    expect(src.ensure).not.toHaveBeenCalled();
+  });
 });
