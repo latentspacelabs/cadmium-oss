@@ -38,6 +38,7 @@ import {
   ADD_COLOR_TO_PALETTE,
   REPLACE_IMAGE_DATA_URI,
   DESELECT_FRAMES,
+  SET_FRAMES_TO_LOADING,
 } from '@/store/mutation-types';
 import { INITIAL_COLOR_LAYER_ID } from '@/store/general-types';
 
@@ -372,5 +373,45 @@ describe('analyzeRef', () => {
     expect(store._commits.filter(c => c.type === REPLACE_IMAGE_DATA_URI)).toEqual([
       { type: REPLACE_IMAGE_DATA_URI, payload: { imageDataId: 'C1', dataUri: 'data:image/png;base64,PRE' } },
     ]);
+  });
+});
+
+// ── wait for the accelerated colorizer ─────────────────────────────────────────
+
+describe('runColorize waits for the colorizer build', () => {
+  it('awaits deps.waitForColorizer before the first /colorize call', async () => {
+    const order = [];
+    const server = makeServer(async () => {
+      order.push('colorize');
+      return okColorizeResp();
+    });
+    const deps = {
+      ...makeDeps({ server }),
+      waitForColorizer: jest.fn(async () => { order.push('wait'); }),
+    };
+    await runColorize(colorizeOps([2]), deps, makeCtx());
+    expect(deps.waitForColorizer).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['wait', 'colorize']);
+  });
+
+  it('a cancel while waiting colorizes nothing and still clears the frame spinners', async () => {
+    const store = makeStore();
+    const server = makeServer();
+    const deps = {
+      ...makeDeps({ store, server }),
+      waitForColorizer: jest.fn(async () => { throw new JobCanceledError('colorize'); }),
+    };
+    await expect(runColorize(colorizeOps([2, 3]), deps, makeCtx()))
+      .rejects.toBeInstanceOf(JobCanceledError);
+    expect(server.colorizeFrame).not.toHaveBeenCalled();
+    const loading = store._commits.filter((c) => c.type === SET_FRAMES_TO_LOADING);
+    expect(loading[loading.length - 1].payload.isLoading).toBe(false);
+  });
+
+  it('analyze runs never wait for the colorizer', async () => {
+    const deps = { ...makeDeps(), waitForColorizer: jest.fn(async () => {}) };
+    const plan = { analyzeMode: true, ops: [{ frameNr: 2, refFrameNr: 1, isOriginal: false }] };
+    await runAnalyze(plan, deps, makeCtx());
+    expect(deps.waitForColorizer).not.toHaveBeenCalled();
   });
 });

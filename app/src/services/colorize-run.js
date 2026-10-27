@@ -10,7 +10,7 @@
  *   analyzeRef(refInputs, deps)    // single-reference analyze, shared with
  *                                  //   ANALYZE_CURRENT_FRAME (color-import path)
  *
- *   deps = { store, assets, server, io }
+ *   deps = { store, assets, server, io, waitForColorizer? }
  *     store  = a Vuex store or action ctx ({ state, getters, commit, dispatch })
  *     assets = { tryGetAsset, putAsset }            (asset-store.js)
  *     server = { colorizeFrame, analyzeReference }  (colorize-service.js)
@@ -337,6 +337,13 @@ async function runColorizeLoop(plan, deps, ctx) {
   store.commit(SET_FRAMES_TO_LOADING, { layerId: colorLayerId, frameNrs: selectedFrameNrs });
   ctx.progress(colorizedFrames, total);
 
+  // Colorize waits for the embedded backend's accelerated colorizer to finish
+  // building (first launch: ~2 min) instead of crawling on the CPU path
+  // meanwhile — see colorizer-ready.js. Analyze never needs the colorizer.
+  if (!analyzeMode && deps.waitForColorizer) {
+    await deps.waitForColorizer(ctx);
+  }
+
   // The dupe session map: reference line-image-id -> original color-image-id,
   // extended with each freshly colorized image. Seeded ONCE; the sole reuse
   // site is the `isDupe` branch below.
@@ -618,10 +625,19 @@ export function createColorizeDeps(store) {
   const { createCanvas } = require('@/util/canvas-util');
   const { addTempFile, requestTempFiles } = require('@/platform');
 
+  const { waitForColorizer } = require('@/services/colorizer-ready');
+  const { getLastSidecarStatus, onSidecarStatus } = require('@/util/sidecar-status');
+  const { getServerBackend } = require('@/util/server-config');
+
   return {
     store,
     assets: { tryGetAsset, putAsset },
     server: { colorizeFrame, analyzeReference },
+    waitForColorizer: (ctx) => waitForColorizer({
+      getStatus: getLastSidecarStatus,
+      subscribe: onSidecarStatus,
+      getBackend: getServerBackend,
+    }, ctx),
     io: {
       pathJoin: (...parts) => path.join(...parts),
       tmpDir: () => defineTempDir(),

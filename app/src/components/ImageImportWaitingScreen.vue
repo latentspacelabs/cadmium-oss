@@ -52,6 +52,7 @@ import { cancelModal } from '@/util/server-client';
 import { getLastSidecarStatus, onSidecarStatus } from '@/util/sidecar-status';
 import { statusReportsBuilding, compilingProgress } from '@/util/optimize-progress-core';
 import { BACKEND_HOSTED } from '@/util/server-config';
+import { colorizeShouldWait } from '@/services/colorizer-ready';
 
 import { mapGetters } from 'vuex';
 
@@ -121,6 +122,15 @@ export default {
       const s = this.sidecarStatus;
       if (!statusReportsBuilding(s)) return '';
       const o = compilingProgress(s);
+      // Colorize runs wait for the colorizer (colorizer-ready.js) rather than
+      // running slower — say so, with the compile percent when known.
+      if (this.currentTask === TASK_COLORIZATION && colorizeShouldWait(s, this.serverBackend)) {
+        return o
+          ? t('Preparing the colorizer for this computer ({{pct}}%) — one-time; colorizing starts when it is ready.', {
+            pct: String(o.percent),
+          })
+          : t('Preparing the colorizer — colorizing starts in a moment.');
+      }
       return o
         ? t('The AI backend is still optimizing ({{pct}}%) — this run is slower than usual.', {
           pct: String(o.percent),
