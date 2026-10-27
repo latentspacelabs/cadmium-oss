@@ -232,6 +232,12 @@ fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
 /// silently serving from the CPU (the goldens would still pass and hide it).
 /// With `cache_dir`, the compiled CoreML model is persisted there — the AnT
 /// bucket's ~107s compile happens once per machine, then reloads in ~20s.
+///
+/// The CPU arena and memory pattern are off: the bucket graph runs as 42
+/// CoreML partitions with CPU ops between them, and an arena sized for those
+/// boundary tensors never shrinks. Measured on the shipped AnT bucket over 11
+/// colorizes: phys_footprint 18 GB -> 12 GB, forward ~1.1-1.5 s either way —
+/// the difference between a 16 GB Mac swapping and not.
 #[cfg(target_os = "macos")]
 fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Result<Session, String> {
     use ort::ep::coreml::{ComputeUnits, ModelFormat};
@@ -250,7 +256,11 @@ fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Re
             ep = ep.with_model_cache_dir(dir.display());
         }
         Session::builder()?
-            .with_execution_providers([ep.build().error_on_failure(), CPU::default().build()])?
+            .with_memory_pattern(false)?
+            .with_execution_providers([
+                ep.build().error_on_failure(),
+                CPU::default().with_arena_allocator(false).build(),
+            ])?
             .commit_from_file(path)
     })()
     .map_err(|e| format!("failed to load {what} model {}: {e}", path.display()))?;
