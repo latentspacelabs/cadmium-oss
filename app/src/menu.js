@@ -472,7 +472,7 @@ export async function mainMenuFactory(colorizationInProgress = false) {
         },
       },
       {
-        label: t('Terms of Agreement'),
+        label: t('License'),
         click: async () => {
           /* eslint-disable import/no-extraneous-dependencies */
           /* eslint-disable global-require */

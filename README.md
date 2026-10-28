@@ -344,6 +344,8 @@ container image definition.
 
 ## License
 
-[Apache License 2.0](LICENSE). Vendored code under `third_party/`
-(visioncortex, vtracer forks) retains its original licenses — see the
-LICENSE files in those directories.
+Everything in this repository is licensed under the
+[Apache License 2.0](LICENSE). The only exception is the vendored
+`third_party/` submodules (visioncortex and vtracer forks), which keep their
+upstream permissive licenses (MIT / Apache-2.0) — see the LICENSE files in
+those directories.
