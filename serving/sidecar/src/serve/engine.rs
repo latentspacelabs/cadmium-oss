@@ -66,6 +66,14 @@ const GAP_ACCEL_BATCH: usize = 24;
 /// isolation: gap batch 24 → corrupt AnT; batch 4 → correct (2026-10-05).
 const GAP_DML_BATCH: usize = 4;
 
+/// CoreML gap-closer batch when the session is built from the DYNAMIC
+/// `--gap-model` with its `batch` dim pinned at load (`with_dimension_override`)
+/// — the macOS default. Versus the batch-24 bucket export, on an M3 Max over 12
+/// real /segment requests: ~0.22 s vs ~1.27 s per forward of a 2-4 tile drawing,
+/// phys_footprint after them 4.2 GB vs 10.2 GB, identical segment counts, and a
+/// 48-tile 3072x4092 frame about breaks even (12 x 0.22 s vs 2 x 1.27 s).
+const GAP_COREML_BATCH: usize = 4;
+
 // ---------------------------------------------------------------------------
 // EP selection
 
@@ -184,6 +192,9 @@ pub struct Engine {
     /// Batched GapCloser accelerator session (CoreML fp32 on macOS, DirectML
     /// fp16 on Windows) — built on first use / prewarm.
     gap_accel: Mutex<Option<Session>>,
+    /// Static batch of the built gap accelerator session (CoreML pads every
+    /// chunk to it); 0 until built.
+    gap_accel_batch: std::sync::atomic::AtomicUsize,
     /// Latched once the gap accelerator build fails (prewarm or lazy): the
     /// build won't succeed on a retry with the same model+machine, so every
     /// later `/segment` skips straight to the CPU EP instead of re-paying the
@@ -240,6 +251,23 @@ fn build_cpu_session(what: &str, path: &Path) -> Result<Session, String> {
 /// the difference between a 16 GB Mac swapping and not.
 #[cfg(target_os = "macos")]
 fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Result<Session, String> {
+    coreml_session(what, path, cache_dir, None)
+}
+
+/// CoreML session over a DYNAMIC-batch model with its `batch` dim pinned to
+/// `batch` at load (CoreML needs static shapes), uncached.
+#[cfg(target_os = "macos")]
+fn build_coreml_session_fixed_batch(what: &str, path: &Path, batch: usize) -> Result<Session, String> {
+    coreml_session(what, path, None, Some(batch))
+}
+
+#[cfg(target_os = "macos")]
+fn coreml_session(
+    what: &str,
+    path: &Path,
+    cache_dir: Option<&Path>,
+    batch: Option<usize>,
+) -> Result<Session, String> {
     use ort::ep::coreml::{ComputeUnits, ModelFormat};
 
     if let Some(dir) = cache_dir {
@@ -255,8 +283,11 @@ fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Re
         if let Some(dir) = cache_dir.filter(|d| d.is_dir()) {
             ep = ep.with_model_cache_dir(dir.display());
         }
-        Session::builder()?
-            .with_memory_pattern(false)?
+        let mut builder = Session::builder()?.with_memory_pattern(false)?;
+        if let Some(b) = batch {
+            builder = builder.with_dimension_override("batch", b as i64)?;
+        }
+        builder
             .with_execution_providers([
                 ep.build().error_on_failure(),
                 CPU::default().with_arena_allocator(false).build(),
@@ -267,6 +298,7 @@ fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Re
     tracing::info!(
         model = %path.display(),
         load_ms = t0.elapsed().as_millis() as u64,
+        batch = batch.map_or("model".to_string(), |b| b.to_string()),
         "{what} ONNX session created (CoreML EP, MLProgram, compute units ALL)"
     );
     Ok(session)
@@ -274,6 +306,11 @@ fn build_coreml_session(what: &str, path: &Path, cache_dir: Option<&Path>) -> Re
 
 #[cfg(not(target_os = "macos"))]
 fn build_coreml_session(_what: &str, _path: &Path, _cache_dir: Option<&Path>) -> Result<Session, String> {
+    Err("CoreML EP is only compiled into macOS builds".into())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn build_coreml_session_fixed_batch(_what: &str, _path: &Path, _batch: usize) -> Result<Session, String> {
     Err("CoreML EP is only compiled into macOS builds".into())
 }
 
@@ -409,6 +446,8 @@ impl Engine {
             };
         let gap_ep = match gap_accel_ep {
             Some(accel) if gap_bucket_model_path.is_some() => accel,
+            // CoreML builds from the dynamic model with a pinned batch.
+            Some(GapEp::CoreMl) if gap_model_path.is_some() => GapEp::CoreMl,
             Some(_) => {
                 // The accelerator EP is available but its model is absent —
                 // the actionable, easy-to-miss degradation (surfaced in /health).
@@ -451,6 +490,7 @@ impl Engine {
             gap_ep,
             gap: Mutex::new(None),
             gap_accel: Mutex::new(None),
+            gap_accel_batch: std::sync::atomic::AtomicUsize::new(0),
             gap_accel_failed: AtomicBool::new(false),
             ant: Mutex::new(None),
             ant_dynamic_ep: Mutex::new("?"),
@@ -669,24 +709,48 @@ impl Engine {
         if self.gap_accel_failed.load(Ordering::SeqCst) {
             return;
         }
-        let Some(path) = self.gap_bucket_model_path.clone() else {
+        if self.gap_bucket_model_path.is_none()
+            && !(self.gap_ep == GapEp::CoreMl && self.gap_model_path.is_some())
+        {
             return;
-        };
+        }
         let Ok(mut guard) = self.gap_accel.lock() else {
             return;
         };
         if guard.is_some() {
             return;
         }
-        let built = match self.gap_ep {
-            GapEp::CoreMl => {
-                build_coreml_session("GapCloser bucket", &path, self.coreml_cache_dir.as_deref())
+        let built = match (self.gap_ep, &self.gap_model_path, &self.gap_bucket_model_path) {
+            // Preferred on macOS: the dynamic model pinned to a small batch.
+            // Not disk-cached — its compile is ~2 s, and an unstamped model has
+            // no COREML_CACHE_KEY, so the app's cache prune would delete it.
+            (GapEp::CoreMl, Some(dynamic), _) => build_coreml_session_fixed_batch(
+                "GapCloser", dynamic, GAP_COREML_BATCH,
+            )
+            .map(|s| (s, GAP_COREML_BATCH)),
+            (GapEp::CoreMl, None, Some(bucket)) => {
+                build_coreml_session("GapCloser bucket", bucket, self.coreml_cache_dir.as_deref())
+                    .map(|s| {
+                        let pinned = s
+                            .inputs()
+                            .first()
+                            .and_then(|o| o.dtype().tensor_shape())
+                            .and_then(|shape| shape.first().copied())
+                            .filter(|&b| b > 0)
+                            .map_or(GAP_ACCEL_BATCH, |b| b as usize);
+                        (s, pinned)
+                    })
             }
-            GapEp::Dml => build_dml_session("GapCloser fp16", &path),
-            GapEp::Cpu => return,
+            (GapEp::Dml, _, Some(fp16)) => {
+                build_dml_session("GapCloser fp16", fp16).map(|s| (s, GAP_DML_BATCH))
+            }
+            _ => return,
         };
         match built {
-            Ok(session) => *guard = Some(session),
+            Ok((session, batch)) => {
+                self.gap_accel_batch.store(batch, Ordering::SeqCst);
+                *guard = Some(session);
+            }
             Err(e) => {
                 self.gap_accel_failed.store(true, Ordering::SeqCst);
                 Self::note_accel_reason(&self.gap_accel_reason, &e);
@@ -727,20 +791,21 @@ impl Engine {
     /// the forward is EP-agnostic. Errors here fall back to the CPU EP in
     /// `run_gap_udfs`.
     fn run_gap_accel(&self, tiles: &[PlaneF32]) -> Result<Vec<Vec<f32>>, String> {
-        if self.gap_bucket_model_path.is_none() {
-            return Err("no gap accelerator model configured (start with --gap-model-bucket)".into());
-        }
         self.ensure_gap_accel_session();
         let mut guard = self.gap_accel.lock().map_err(|_| "gap accelerator session poisoned")?;
         let session = guard
             .as_mut()
             .ok_or("gap accelerator session unavailable (build failed)")?;
         let tile_len = TILE_SIZE * TILE_SIZE;
-        // CoreML: the export is pinned to GAP_ACCEL_BATCH — pad every chunk.
-        // DirectML: dynamic batch — send only real tiles, a few at a time.
+        // CoreML: static shapes — pad every chunk to the session's pinned batch
+        // (GAP_COREML_BATCH, or the bucket export's own). DirectML: dynamic
+        // batch — send only real tiles, a few at a time.
         let (chunk, pad) = match self.gap_ep {
             GapEp::Dml => (GAP_DML_BATCH, false),
-            _ => (GAP_ACCEL_BATCH, true),
+            _ => match self.gap_accel_batch.load(Ordering::SeqCst) {
+                0 => (GAP_ACCEL_BATCH, true),
+                b => (b, true),
+            },
         };
         let mut udfs: Vec<Vec<f32>> = Vec::with_capacity(tiles.len());
         let mut start = 0;
